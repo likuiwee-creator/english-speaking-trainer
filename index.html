@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#4A90D9">
+  <title>英语课文口语训练</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+  <!-- ========== 顶部状态栏 ========== -->
+  <header id="header-bar">
+    <div id="header-left"></div>
+    <div id="header-title">英语口语训练</div>
+    <div id="header-right"></div>
+  </header>
+
+  <!-- ========== 主内容区 ========== -->
+  <main id="main-content">
+
+    <!-- IDLE: 初始待机页 -->
+    <section id="state-idle" class="state-panel">
+      <div class="idle-hero">
+        <div class="idle-icon">📖</div>
+        <h1 class="idle-title">英语课文口语训练</h1>
+        <p class="idle-subtitle">拍照上传课文，AI 教练带你开口说英语</p>
+      </div>
+      <div class="idle-actions">
+        <button class="btn-primary btn-large" id="btn-start-training">
+          <span class="btn-icon">📷</span>
+          <span>拍照导入课文</span>
+        </button>
+        <button class="btn-secondary btn-large" id="btn-text-input">
+          <span class="btn-icon">✏️</span>
+          <span>手动输入课文</span>
+        </button>
+      </div>
+      <div class="idle-extra">
+        <button class="btn-text" id="btn-history">📋 查看历史记录</button>
+      </div>
+      <div class="idle-compat" id="compat-badge"></div>
+    </section>
+
+    <!-- OCR_CAPTURING: 拍照上传 -->
+    <section id="state-ocr-capturing" class="state-panel">
+      <div class="ocr-header">
+        <button class="btn-back" data-back="idle">← 返回</button>
+        <h2>📷 拍摄课文</h2>
+      </div>
+      <div class="ocr-preview" id="ocr-preview-area">
+        <div class="ocr-placeholder">
+          <span class="ocr-placeholder-icon">📸</span>
+          <p>点击下方按钮拍照或选择图片</p>
+        </div>
+        <img id="ocr-preview-img" style="display:none" alt="预览">
+      </div>
+      <div class="ocr-buttons">
+        <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none">
+        <button class="btn-primary" id="btn-capture">
+          <span>📸 拍照</span>
+        </button>
+        <button class="btn-secondary" id="btn-gallery">
+          <span>🖼 相册选择</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- OCR_PROCESSING: 识别处理中 -->
+    <section id="state-ocr-processing" class="state-panel">
+      <div class="processing-container">
+        <div class="processing-spinner">
+          <div class="spinner-ring"></div>
+          <div class="spinner-icon">🔍</div>
+        </div>
+        <h3 id="ocr-progress-text">正在准备识别…</h3>
+        <div class="progress-bar">
+          <div class="progress-fill" id="ocr-progress-fill"></div>
+        </div>
+        <p class="processing-hint" id="ocr-progress-hint">正在分析课文内容…</p>
+      </div>
+    </section>
+
+    <!-- TEXT_REVIEW: 文本确认 -->
+    <section id="state-text-review" class="state-panel">
+      <div class="review-header">
+        <button class="btn-back" data-back="ocr-capturing">← 重拍</button>
+        <h2>✏️ 确认课文内容</h2>
+      </div>
+      <div class="review-hint">可编辑修正识别结果，确认无误后开始训练</div>
+      <textarea id="text-review-editor" class="review-editor" placeholder="课文内容将显示在这里…"></textarea>
+      <button class="btn-primary btn-full" id="btn-confirm-text">✅ 确认，开始训练</button>
+    </section>
+
+    <!-- ROLE_SELECT: 选择角色 -->
+    <section id="state-role-select" class="state-panel">
+      <h2 class="select-title">🎭 选择你的角色</h2>
+      <div class="role-cards">
+        <div class="role-card" data-role="student_a">
+          <div class="role-avatar">👦</div>
+          <div class="role-name">学生 A</div>
+          <div class="role-desc">课文中的 A 角色</div>
+        </div>
+        <div class="role-card" data-role="student_b">
+          <div class="role-avatar">👧</div>
+          <div class="role-name">学生 B</div>
+          <div class="role-desc">课文中的 B 角色</div>
+        </div>
+        <div class="role-card" data-role="teacher">
+          <div class="role-avatar">👩‍🏫</div>
+          <div class="role-name">老师</div>
+          <div class="role-desc">引导对话的老师</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DIFFICULTY_SELECT: 选择难度 -->
+    <section id="state-difficulty-select" class="state-panel">
+      <h2 class="select-title">📊 选择训练难度</h2>
+      <div class="diff-cards">
+        <div class="diff-card" data-difficulty="easy">
+          <div class="diff-stars">🌟</div>
+          <div class="diff-name">简易</div>
+          <div class="diff-desc">逐词跟读，AI 先示范，你再重复</div>
+        </div>
+        <div class="diff-card" data-difficulty="medium">
+          <div class="diff-stars">🌟🌟</div>
+          <div class="diff-name">中等</div>
+          <div class="diff-desc">短句对话练习，有提示可参考</div>
+        </div>
+        <div class="diff-card" data-difficulty="hard">
+          <div class="diff-stars">🌟🌟🌟</div>
+          <div class="diff-name">困难</div>
+          <div class="diff-desc">完整句子对话，独立完成</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DIALOGUE_READY: 对话准备 -->
+    <section id="state-dialogue-ready" class="state-panel">
+      <div class="ready-container">
+        <div class="ready-icon">🎯</div>
+        <h2>对话即将开始</h2>
+        <div class="ready-info">
+          <div class="ready-info-row">
+            <span class="ready-label">课文</span>
+            <span class="ready-value" id="ready-passage">—</span>
+          </div>
+          <div class="ready-info-row">
+            <span class="ready-label">角色</span>
+            <span class="ready-value" id="ready-role">—</span>
+          </div>
+          <div class="ready-info-row">
+            <span class="ready-label">难度</span>
+            <span class="ready-value" id="ready-difficulty">—</span>
+          </div>
+        </div>
+        <div class="ready-countdown" id="ready-countdown">3</div>
+        <p class="ready-hint">即将自动开始…</p>
+      </div>
+    </section>
+
+    <!-- DIALOGUE_ACTIVE: 对话主界面 (含 SPEAKING / LISTENING) -->
+    <section id="state-dialogue-active" class="state-panel">
+      <div class="dialogue-status-bar">
+        <span id="dialogue-progress">第 1/10 句</span>
+        <span class="dialogue-difficulty" id="dialogue-diff-badge">🌟🌟</span>
+      </div>
+      <div class="dialogue-chat" id="dialogue-chat-area">
+        <!-- 动态填充对话气泡 -->
+      </div>
+      <div class="dialogue-hint" id="dialogue-hint-area" style="display:none">
+        <div class="hint-label">💡 参考提示</div>
+        <div class="hint-text" id="dialogue-hint-text"></div>
+      </div>
+    </section>
+
+    <!-- CORRECTING: 纠错分析中 (过渡态) -->
+    <section id="state-correcting" class="state-panel">
+      <div class="processing-container">
+        <div class="processing-spinner">
+          <div class="spinner-ring"></div>
+          <div class="spinner-icon">🔍</div>
+        </div>
+        <h3>正在分析你的发音…</h3>
+      </div>
+    </section>
+
+    <!-- CORRECTION_FEEDBACK: 纠错反馈 -->
+    <section id="state-correction-feedback" class="state-panel">
+      <div class="correction-header">🔍 练习反馈</div>
+      <div class="correction-body">
+        <div class="correction-section">
+          <div class="correction-label">你说的：</div>
+          <div class="correction-box correction-user" id="correction-user-text"></div>
+        </div>
+        <div class="correction-section correction-result-section" id="correction-result-area">
+          <!-- 动态填充纠错结果 -->
+        </div>
+        <div class="correction-section">
+          <div class="correction-label">📝 正确句子：</div>
+          <div class="correction-box correction-correct" id="correction-correct-text"></div>
+        </div>
+        <div class="correction-actions">
+          <button class="btn-secondary" id="btn-listen-demo">👂 听示范发音</button>
+          <button class="btn-primary" id="btn-retry-sentence">🔄 再来一次</button>
+        </div>
+        <div class="correction-countdown" id="correction-countdown">3 秒后自动重试…</div>
+      </div>
+    </section>
+
+    <!-- EXTEND_TRAINING: 拓展训练 -->
+    <section id="state-extend-training" class="state-panel">
+      <div class="extend-header">
+        <span class="extend-phase-badge" id="extend-phase-badge">阶段 1/2</span>
+        <h2>🚀 拓展练习</h2>
+      </div>
+      <div class="extend-body">
+        <div class="extend-prompt" id="extend-prompt-text"></div>
+        <div class="extend-original">
+          <span class="extend-label">原文：</span>
+          <span id="extend-original-text"></span>
+        </div>
+        <div class="extend-new">
+          <span class="extend-label">新句：</span>
+          <span id="extend-new-text"></span>
+        </div>
+        <div class="extend-options" id="extend-options-area">
+          <!-- 动态填充替换选项 -->
+        </div>
+      </div>
+      <div class="extend-footer">
+        <p>🎤 选择替换词后朗读新句子</p>
+      </div>
+    </section>
+
+    <!-- REPORT_GENERATING: 报告生成中 -->
+    <section id="state-report-generating" class="state-panel">
+      <div class="processing-container">
+        <div class="processing-spinner">
+          <div class="spinner-ring"></div>
+          <div class="spinner-icon">📊</div>
+        </div>
+        <h3>正在生成训练报告…</h3>
+      </div>
+    </section>
+
+    <!-- REPORT_DISPLAY: 报告展示 -->
+    <section id="state-report-display" class="state-panel">
+      <div class="report-header">
+        <h2>📊 训练报告</h2>
+      </div>
+      <div class="report-body" id="report-body">
+        <!-- 动态填充报告内容 -->
+      </div>
+      <div class="report-actions">
+        <button class="btn-secondary" id="btn-restart">🔄 重新训练</button>
+        <button class="btn-primary" id="btn-history-back">📋 查看历史</button>
+      </div>
+    </section>
+
+    <!-- 历史记录列表 -->
+    <section id="state-history" class="state-panel">
+      <div class="history-header">
+        <button class="btn-back" data-back="idle">← 返回</button>
+        <h2>📋 历史记录</h2>
+      </div>
+      <div class="history-list" id="history-list">
+        <p class="history-empty">暂无训练记录</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== 底部控制栏 (对话模式专用) ========== -->
+  <footer id="footer-bar" style="display:none">
+    <!-- 开始说话按钮 (用户手势触发) -->
+    <div id="speak-start-area">
+      <button class="btn-primary btn-large" id="btn-start-speaking">
+        <span>🎤 点击开始说话</span>
+      </button>
+    </div>
+    <!-- 麦克风区域 (开始后显示) -->
+    <div id="mic-area" style="display:none">
+      <div id="mic-visualizer">
+        <canvas id="mic-canvas"></canvas>
+      </div>
+      <div id="mic-status-text">🎤 正在聆听…</div>
+      <div id="mic-waveform">
+        <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
+        <span class="wave-bar"></span><span class="wave-bar"></span>
+      </div>
+    </div>
+    <!-- 文本输入降级 -->
+    <div id="text-input-area" style="display:none">
+      <input type="text" id="text-input-field" placeholder="输入你说的英文…" autocomplete="off">
+      <button id="btn-text-submit">发送</button>
+    </div>
+    <!-- 跳过按钮 -->
+    <button class="btn-skip" id="btn-skip-turn">跳过此句</button>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

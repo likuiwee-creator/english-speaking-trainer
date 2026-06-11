@@ -1,0 +1,724 @@
+// app.js - 应用入口 & 核心编排
+import { CONFIG, ROLES } from './config.js';
+import { StateMachine } from './stateMachine.js';
+import { SpeechEngine } from './speechEngine.js';
+import { OCREngine } from './ocrEngine.js';
+import { CorrectionEngine } from './correctionEngine.js';
+import { DifficultyController } from './difficultyController.js';
+import { DialogueManager } from './dialogueManager.js';
+import { ExtendTraining } from './extendTraining.js';
+import { TrainingRecorder } from './trainingRecorder.js';
+import { StorageManager } from './storageManager.js';
+import { UIRenderer } from './uiRenderer.js';
+
+class App {
+  constructor() {
+    // 初始化所有模块
+    this.stateMachine = new StateMachine();
+    this.speech = new SpeechEngine();
+    this.ocr = new OCREngine();
+    this.correction = new CorrectionEngine();
+    this.difficultyCtrl = new DifficultyController('medium');
+    this.extendTraining = new ExtendTraining();
+    this.storage = new StorageManager();
+    this.ui = new UIRenderer();
+
+    // 运行时状态
+    this.dialogue = null;
+    this.recorder = null;
+    this.selectedRole = null;
+    this.selectedRoleId = null;
+    this.originalPassage = '';
+    this.correctionTimer = null;
+    this.countdownTimer = null;
+    this.isExtendPhase = false;
+    this.extendSelectedWord = null;
+    this.pendingExtendExercise = null;
+  }
+
+  // ========== 启动 ==========
+  async init() {
+    // 初始化存储
+    await this.storage.init();
+
+    // 显示兼容模式
+    const mode = this.speech.getFallbackMode();
+    this.ui.showCompatBadge(mode);
+
+    // 如果是纯文字模式，调整 UI
+    if (mode === 'TEXT_ONLY' || mode === 'TEXT_INPUT') {
+      this.ui.showTextInput();
+    }
+
+    // 状态机监听
+    this.stateMachine.onChange((event) => this._onStateChange(event));
+
+    // 绑定事件
+    this._bindEvents();
+
+    // 初始状态
+    this.ui.showState('IDLE');
+  }
+
+  // ========== 事件绑定 ==========
+  _bindEvents() {
+    // 开始训练
+    document.getElementById('btn-start-training')?.addEventListener('click', () => {
+      this.stateMachine.transition('OCR_CAPTURING');
+    });
+
+    // 手动输入课文
+    document.getElementById('btn-text-input')?.addEventListener('click', () => {
+      this.ui.setReviewText('');
+      this.stateMachine.transition('TEXT_INPUT');
+    });
+
+    // 拍照
+    document.getElementById('btn-capture')?.addEventListener('click', () => {
+      document.getElementById('ocr-file-input').click();
+    });
+
+    // 相册选择
+    document.getElementById('btn-gallery')?.addEventListener('click', () => {
+      const input = document.getElementById('ocr-file-input');
+      input.removeAttribute('capture');
+      input.click();
+      input.setAttribute('capture', 'environment');
+    });
+
+    // 文件选择
+    document.getElementById('ocr-file-input')?.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) this._processOCR(file);
+    });
+
+    // 确认文本
+    document.getElementById('btn-confirm-text')?.addEventListener('click', () => {
+      this.originalPassage = this.ui.getReviewText();
+      if (!this.originalPassage) {
+        alert('请输入或识别课文内容');
+        return;
+      }
+      this.stateMachine.transition('ROLE_SELECT');
+    });
+
+    // 角色选择
+    document.querySelectorAll('.role-card').forEach(card => {
+      card.addEventListener('click', () => {
+        this.selectedRoleId = card.dataset.role;
+        this.selectedRole = ROLES[this.selectedRoleId];
+        this.ui.highlightRole(this.selectedRoleId);
+        setTimeout(() => {
+          this.stateMachine.transition('DIFFICULTY_SELECT');
+        }, 300);
+      });
+    });
+
+    // 难度选择
+    document.querySelectorAll('.diff-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const level = card.dataset.difficulty;
+        this.difficultyCtrl.setLevel(level);
+        this.ui.highlightDifficulty(level);
+        setTimeout(() => {
+          this.stateMachine.transition('DIALOGUE_READY');
+        }, 300);
+      });
+    });
+
+    // 纠错 - 听示范发音
+    document.getElementById('btn-listen-demo')?.addEventListener('click', () => {
+      const text = document.getElementById('correction-correct-text')?.textContent;
+      if (text) {
+        this.ui.setMicState('speaking');
+        this.speech.speak(text).then(() => {
+          this.ui.setMicState('idle');
+        });
+      }
+    });
+
+    // 纠错 - 再来一次
+    document.getElementById('btn-retry-sentence')?.addEventListener('click', () => {
+      this._clearTimers();
+      this._nextDialogueTurn();
+    });
+
+    // 跳过此句
+    document.getElementById('btn-skip-turn')?.addEventListener('click', () => {
+      this._skipTurn();
+    });
+
+    // 开始说话按钮（用户手势触发语音识别）
+    document.getElementById('btn-start-speaking')?.addEventListener('click', () => {
+      this._onStartSpeaking();
+    });
+
+    // 文本输入提交
+    document.getElementById('btn-text-submit')?.addEventListener('click', () => {
+      const text = this.ui.getTextInput();
+      if (text.trim()) {
+        this._handleUserInput(text);
+        this.ui.clearTextInput();
+      }
+    });
+
+    // 文本输入回车
+    document.getElementById('text-input-field')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const text = this.ui.getTextInput();
+        if (text.trim()) {
+          this._handleUserInput(text);
+          this.ui.clearTextInput();
+        }
+      }
+    });
+
+    // 重新训练
+    document.getElementById('btn-restart')?.addEventListener('click', () => {
+      this._reset();
+      this.stateMachine.reset();
+      this.ui.showState('IDLE');
+    });
+
+    // 历史记录
+    document.getElementById('btn-history')?.addEventListener('click', () => {
+      this._showHistory();
+    });
+    document.getElementById('btn-history-back')?.addEventListener('click', () => {
+      this._showHistory();
+    });
+
+    // 返回按钮
+    document.querySelectorAll('.btn-back').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const back = btn.dataset.back;
+        if (back === 'idle') {
+          this._reset();
+          this.stateMachine.reset();
+          this.ui.showState('IDLE');
+        } else if (back === 'ocr-capturing') {
+          this.stateMachine.transition('OCR_CAPTURING');
+        }
+      });
+    });
+
+    // 历史记录项点击
+    document.getElementById('history-list')?.addEventListener('click', (e) => {
+      const item = e.target.closest('.history-item');
+      if (item) {
+        this._viewReport(item.dataset.reportId);
+      }
+    });
+
+    // 拓展选项点击
+    document.getElementById('extend-options-area')?.addEventListener('click', (e) => {
+      const opt = e.target.closest('.extend-option');
+      if (opt) {
+        this.extendSelectedWord = opt.dataset.word;
+        this.ui.highlightExtendOption(this.extendSelectedWord);
+        this._doExtendPractice();
+      }
+    });
+  }
+
+  // ========== 状态变更处理 ==========
+  _onStateChange(event) {
+    console.log(`State: ${event.from} → ${event.to}`);
+
+    switch (event.to) {
+      case 'IDLE':
+        this.ui.showState('IDLE');
+        break;
+      case 'OCR_CAPTURING':
+        this.ui.showState('OCR_CAPTURING');
+        break;
+      case 'OCR_PROCESSING':
+        this.ui.showState('OCR_PROCESSING');
+        break;
+      case 'TEXT_REVIEW':
+        this.ui.showState('TEXT_REVIEW');
+        break;
+      case 'ROLE_SELECT':
+        this.ui.showState('ROLE_SELECT');
+        break;
+      case 'DIFFICULTY_SELECT':
+        this.ui.showState('DIFFICULTY_SELECT');
+        break;
+      case 'DIALOGUE_READY':
+        this._onDialogueReady();
+        break;
+      case 'DIALOGUE_ACTIVE':
+        this.ui.showState('DIALOGUE_ACTIVE');
+        this._nextDialogueTurn();
+        break;
+      case 'CORRECTING':
+        this.ui.showState('CORRECTING');
+        break;
+      case 'CORRECTION_FEEDBACK':
+        this.ui.showState('CORRECTION_FEEDBACK');
+        break;
+      case 'EXTEND_TRAINING':
+        this.ui.showState('EXTEND_TRAINING');
+        this._startExtendTraining();
+        break;
+      case 'REPORT_GENERATING':
+        this.ui.showState('REPORT_GENERATING');
+        this._generateReport();
+        break;
+      case 'REPORT_DISPLAY':
+        this.ui.showState('REPORT_DISPLAY');
+        break;
+      case 'HISTORY':
+        this._showHistory();
+        break;
+      case 'TEXT_INPUT':
+        this.ui.showState('TEXT_REVIEW');
+        break;
+    }
+  }
+
+  // ========== OCR 处理 ==========
+  async _processOCR(file) {
+    // 预览
+    const reader = new FileReader();
+    reader.onload = (e) => this.ui.showOCRPreview(e.target.result);
+    reader.readAsDataURL(file);
+
+    // 进入处理状态
+    this.stateMachine.transition('OCR_PROCESSING');
+
+    try {
+      const result = await this.ocr.processImage(file, (progress) => {
+        this.ui.showOCRProgress(progress.pct, progress.hint);
+      });
+
+      this.originalPassage = result.cleanedText;
+      this.ui.setReviewText(result.cleanedText);
+      this.stateMachine.transition('TEXT_REVIEW');
+    } catch (error) {
+      console.error('OCR error:', error);
+      alert('OCR 识别失败: ' + error.message + '\n请手动输入课文内容');
+      this.ui.setReviewText('');
+      this.stateMachine.transition('TEXT_REVIEW');
+    }
+  }
+
+  // ========== 对话准备 ==========
+  _onDialogueReady() {
+    this.ui.showState('DIALOGUE_READY');
+
+    // 确定 AI 角色（用户不选的角色）
+    let aiRoleId = 'student_b';
+    if (this.selectedRoleId === 'student_b') aiRoleId = 'student_a';
+    else if (this.selectedRoleId === 'teacher') aiRoleId = 'student_a';
+
+    const aiRole = ROLES[aiRoleId];
+
+    // 显示准备信息
+    this.ui.showReadyInfo(
+      this.originalPassage,
+      this.selectedRole.name,
+      this.difficultyCtrl.getLabel()
+    );
+
+    // 初始化对话管理器
+    this.dialogue = new DialogueManager(
+      this.originalPassage,
+      this.selectedRoleId,
+      aiRoleId,
+      this.difficultyCtrl.getLevel()
+    );
+
+    // 初始化训练记录器
+    this.recorder = new TrainingRecorder(this.dialogue, this.difficultyCtrl);
+
+    // 倒计时 3-2-1 开始
+    this.ui.startReadyCountdown(CONFIG.training.readyCountdown, () => {
+      this.stateMachine.transition('DIALOGUE_ACTIVE');
+    });
+  }
+
+  // ========== 对话循环 ==========
+  async _nextDialogueTurn() {
+    if (!this.dialogue) return;
+
+    // 检查是否完成所有句子
+    if (!this.dialogue.hasNextTurn()) {
+      // 检查是否需要拓展训练
+      if (!this.isExtendPhase && this.dialogue.getTotalSentences() >= CONFIG.training.minTurnsForExtend) {
+        this.isExtendPhase = true;
+        this.stateMachine.transition('EXTEND_TRAINING');
+        return;
+      }
+      // 生成报告
+      this.stateMachine.transition('REPORT_GENERATING');
+      return;
+    }
+
+    // 生成下一轮
+    const turn = this.dialogue.generateNextTurn();
+    if (!turn) {
+      this.stateMachine.transition('REPORT_GENERATING');
+      return;
+    }
+
+    // 更新进度
+    const progress = this.dialogue.getProgress();
+    this.ui.updateProgress(progress.current, progress.total);
+    this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
+
+    // 清除聊天区域（可选：保留历史）
+    // this.ui.clearChat();
+
+    // 如果是 AI 回合
+    if (!turn.isUserTurn && turn.aiPrompt) {
+      // AI 先说话
+      const aiRole = ROLES[turn.speakerRole];
+      this.ui.addChatBubble(
+        turn.speakerName,
+        turn.aiPrompt.text,
+        false,
+        aiRole?.avatar || ''
+      );
+
+      // 根据难度决定是否显示提示
+      if (this.difficultyCtrl.getLevel() !== 'hard') {
+        const nextUserSentence = this.dialogue.getUserSentence(this.dialogue.currentTurnIndex + 1);
+        this.ui.showHint(nextUserSentence);
+      } else {
+        this.ui.showHint(null);
+      }
+
+      // 更新底部状态
+      this.ui.setMicState('speaking');
+
+      // TTS 播放 AI 的话
+      const voiceOpts = ROLES[turn.speakerRole]?.voice || {};
+      await this.speech.speak(turn.aiPrompt.text, voiceOpts);
+
+      // 播放完成后自动进入聆听
+      this.ui.setMicState('idle');
+    }
+
+    // 用户回合开始
+    this._startUserTurn(turn);
+  }
+
+  _startUserTurn(turn) {
+    this.ui.showSkipButton(true);
+
+    const mode = this.speech.getFallbackMode();
+
+    if (mode === 'FULL' || mode === 'VOICE_ONLY') {
+      // 显示「点击开始说话」按钮（用户手势触发语音识别）
+      this.ui.setMicState('idle');
+      this.ui.showSpeakStart();
+    } else {
+      // 文字输入模式
+      this.ui.showTextInput();
+    }
+  }
+
+  // 用户点击按钮后启动语音识别
+  async _onStartSpeaking() {
+    const turn = this.dialogue?.getCurrentTurn();
+    if (!turn) return;
+
+    // 隐藏按钮，显示麦克风
+    this.ui.hideSpeakStart();
+    this.ui.showMicInput();
+    this.ui.setMicState('listening');
+
+    await this._startListening(turn);
+  }
+
+  async _startListening(turn) {
+    // 显示实时识别结果回调
+    this.speech.onInterimResult = (text) => {
+      this.ui.addInterimBubble(text);
+    };
+
+    this.speech.onFinalResult = (text) => {
+      this.ui.removeInterimBubble();
+    };
+
+    try {
+      const result = await this.speech.startListening({
+        silenceTimeout: this.difficultyCtrl.getSpeechTimeout()
+      });
+
+      this.ui.removeInterimBubble();
+
+      if (result.silent) {
+        // 无响应
+        this._handleSilence(turn);
+      } else {
+        this._handleUserInput(result.transcript);
+      }
+    } catch (error) {
+      console.warn('Speech recognition error:', error.message);
+
+      // "not-allowed" 表示浏览器拒绝（需用户手势或麦克风权限）
+      if (error.message === 'not-allowed') {
+        this.ui.setMicState('idle');
+        // 重新显示按钮让用户再次尝试
+        this.ui.showSpeakStart();
+        // 短暂提示
+        this.ui.setMicState('idle');
+        const statusEl = document.getElementById('mic-status-text');
+        if (statusEl) statusEl.textContent = '⚠️ 请允许麦克风权限后重试';
+      } else {
+        // 其他错误降级为文字输入
+        this.ui.showTextInput();
+      }
+    }
+  }
+
+  _handleSilence(turn) {
+    this.ui.setMicState('idle');
+    this.ui.showSkipButton(false);
+
+    // 记录空响应
+    const correction = this.correction.analyze(
+      '',
+      turn.originalText,
+      this.difficultyCtrl.getLevel(),
+      turn.id
+    );
+
+    this.dialogue.recordUserInput(turn.id, '', correction);
+    this.recorder.logTurn({ ...turn, userInput: '', correction, score: 0 });
+
+    // 进入纠错反馈
+    this.ui.showCorrection('', turn.originalText, correction.errors, false);
+    this.stateMachine.transition('CORRECTION_FEEDBACK');
+
+    // 自动倒计时重试
+    this.countdownTimer = this.ui.startCorrectionCountdown(
+      CONFIG.training.repeatCountdown,
+      () => this._nextDialogueTurn()
+    );
+  }
+
+  _handleUserInput(text) {
+    if (!this.dialogue) return;
+
+    const turn = this.dialogue.getCurrentTurn();
+    if (!turn) return;
+
+    // 添加用户气泡
+    this.ui.addChatBubble('你', text, true, '');
+    this.ui.setMicState('recognizing');
+    this.ui.showSkipButton(false);
+
+    // 进入纠错分析
+    this.stateMachine.transition('CORRECTING');
+
+    // 短暂延迟模拟分析
+    setTimeout(() => {
+      this._doCorrection(turn, text);
+    }, 800);
+  }
+
+  _skipTurn() {
+    this._clearTimers();
+    this.speech.stopListening();
+
+    const turn = this.dialogue?.getCurrentTurn();
+    if (turn) {
+      this.dialogue.recordUserInput(turn.id, '(跳过)', { overallScore: 50, errors: [] });
+      this.recorder?.logTurn({ ...turn, userInput: '(跳过)', score: 50 });
+    }
+
+    this.ui.setMicState('idle');
+    this._nextDialogueTurn();
+  }
+
+  // ========== 纠错处理 ==========
+  _doCorrection(turn, userText) {
+    const correction = this.correction.analyze(
+      userText,
+      turn.originalText,
+      this.difficultyCtrl.getLevel(),
+      turn.id
+    );
+
+    // 记录
+    this.dialogue.recordUserInput(turn.id, userText, correction);
+    this.recorder.logTurn({ ...turn, userInput: userText, correction, score: correction.overallScore });
+
+    // 检查是否已纠错过（每个对话单元仅纠错1次）
+    if (correction.isPerfect) {
+      // 完美，直接进入下一轮
+      this.stateMachine.transition('DIALOGUE_ACTIVE');
+      setTimeout(() => this._nextDialogueTurn(), 500);
+      return;
+    }
+
+    // 检查本轮是否已展示过纠错
+    if (turn.isCorrected) {
+      // 已纠错过，仅记录，直接下一轮
+      this.stateMachine.transition('DIALOGUE_ACTIVE');
+      setTimeout(() => this._nextDialogueTurn(), 300);
+      return;
+    }
+
+    // 首次错误，展示纠错
+    this.dialogue.markCorrected(turn.id);
+    this.ui.showCorrection(userText, turn.originalText, correction.errors, false);
+    this.stateMachine.transition('CORRECTION_FEEDBACK');
+
+    // 评估难度调整
+    const allTurns = this.dialogue.getAllTurns().map(t => ({
+      userInput: t.userInput,
+      score: t.score || 0,
+      correction: t.correction
+    }));
+    const adj = this.difficultyCtrl.evaluate(allTurns);
+
+    if (adj === 'downgrade') {
+      this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
+    } else if (adj === 'upgrade') {
+      this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
+    }
+
+    // 自动倒计时重试
+    this.countdownTimer = this.ui.startCorrectionCountdown(
+      CONFIG.training.repeatCountdown,
+      () => this._nextDialogueTurn()
+    );
+  }
+
+  // ========== 拓展训练 ==========
+  _startExtendTraining() {
+    const allTurns = this.dialogue.getAllTurns();
+    const correctSentences = allTurns
+      .filter(t => t.score !== null && t.score >= CONFIG.scoring.goodThreshold)
+      .map(t => t.originalText);
+
+    this.extendTraining.start();
+    const exercise = this.extendTraining.getNextExercise(correctSentences);
+
+    if (!exercise) {
+      // 没有合适的拓展练习，直接生成报告
+      this.stateMachine.transition('REPORT_GENERATING');
+      return;
+    }
+
+    this.pendingExtendExercise = exercise;
+    this.ui.showExtendExercise(exercise);
+    this.ui.setMicState('listening');
+  }
+
+  async _doExtendPractice() {
+    if (!this.pendingExtendExercise || !this.extendSelectedWord) return;
+
+    const exercise = this.pendingExtendExercise;
+    const newSentence = exercise.original.replace(
+      new RegExp(exercise.targetWord || exercise.originalSubject, 'gi'),
+      this.extendSelectedWord
+    );
+
+    // 播放新句子
+    this.ui.setMicState('speaking');
+    this.ui.addChatBubble('AI 教练', newSentence, false, '🤖');
+    await this.speech.speak(newSentence);
+
+    // 记录拓展练习
+    this.recorder?.logExtendExercise(exercise);
+
+    // 检查下一阶段
+    if (this.extendTraining.phase === 1) {
+      this.extendTraining.nextPhase();
+      // 获取阶段2练习
+      const allTurns = this.dialogue.getAllTurns();
+      const correctSentences = allTurns
+        .filter(t => t.score !== null && t.score >= CONFIG.scoring.goodThreshold)
+        .map(t => t.originalText);
+      const nextExercise = this.extendTraining.getNextExercise(correctSentences);
+
+      if (nextExercise) {
+        this.pendingExtendExercise = nextExercise;
+        this.extendSelectedWord = null;
+        this.ui.showExtendExercise(nextExercise);
+        this.ui.setMicState('listening');
+        return;
+      }
+    }
+
+    // 拓展训练完成
+    this.stateMachine.transition('REPORT_GENERATING');
+  }
+
+  // ========== 报告生成 ==========
+  async _generateReport() {
+    if (!this.recorder) return;
+
+    const roleName = this.selectedRole?.name || '学生';
+    const report = this.recorder.generateReport(roleName, this.originalPassage);
+
+    // 保存到存储
+    try {
+      await this.storage.saveReport(report);
+    } catch (e) {
+      console.warn('Report save error:', e);
+    }
+
+    // 显示报告
+    this.ui.showReport(report);
+
+    setTimeout(() => {
+      this.stateMachine.transition('REPORT_DISPLAY');
+    }, 800);
+  }
+
+  // ========== 历史记录 ==========
+  async _showHistory() {
+    this.ui.showState('HISTORY');
+    const reports = await this.storage.getReports();
+    this.ui.showHistory(reports);
+  }
+
+  async _viewReport(reportId) {
+    const reports = await this.storage.getReports();
+    const report = reports.find(r => r.id === reportId);
+    if (report) {
+      this.ui.showReport(report);
+      this.ui.showState('REPORT_DISPLAY');
+    }
+  }
+
+  // ========== 工具方法 ==========
+  _clearTimers() {
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+      this.countdownTimer = null;
+    }
+    if (this.correctionTimer) {
+      clearTimeout(this.correctionTimer);
+      this.correctionTimer = null;
+    }
+    this.speech.stopListening();
+  }
+
+  _reset() {
+    this._clearTimers();
+    this.dialogue = null;
+    this.recorder = null;
+    this.selectedRole = null;
+    this.selectedRoleId = null;
+    this.originalPassage = '';
+    this.isExtendPhase = false;
+    this.extendSelectedWord = null;
+    this.pendingExtendExercise = null;
+    this.extendTraining = new ExtendTraining();
+    this.difficultyCtrl = new DifficultyController('medium');
+    this.speech.cancelSpeech();
+    this.ui.setMicState('idle');
+    this.ui.clearChat();
+  }
+}
+
+// 启动应用
+const app = new App();
+app.init();
