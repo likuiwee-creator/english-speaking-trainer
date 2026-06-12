@@ -47,8 +47,9 @@ class App {
 
     // 如果是纯文字模式，调整 UI
     if (mode === 'TEXT_ONLY' || mode === 'TEXT_INPUT') {
-      this.ui.showTextInput();
+      // 不自动显示文本输入，而是给用户选择
     }
+    console.log('[App] Speech mode:', mode, 'Recognition:', this.speech.supportsRecognition, 'Synthesis:', this.speech.supportsSynthesis);
 
     // 状态机监听
     this.stateMachine.onChange((event) => this._onStateChange(event));
@@ -151,6 +152,11 @@ class App {
     // 开始说话按钮（用户手势触发语音识别）
     document.getElementById('btn-start-speaking')?.addEventListener('click', () => {
       this._onStartSpeaking();
+    });
+
+    // 切换到文字输入模式
+    document.getElementById('btn-switch-to-text')?.addEventListener('click', () => {
+      this.ui.showTextInput();
     });
 
     // 文本输入提交
@@ -405,18 +411,28 @@ class App {
   }
 
   _startUserTurn(turn) {
-    this.ui.showSkipButton(true);
-
     const mode = this.speech.getFallbackMode();
+    const supportsVoice = this.speech.supportsRecognition;
 
-    if (mode === 'FULL' || mode === 'VOICE_ONLY') {
-      // 显示「点击开始说话」按钮（用户手势触发语音识别）
-      this.ui.setMicState('idle');
-      this.ui.showSpeakStart();
-    } else {
-      // 文字输入模式
-      this.ui.showTextInput();
+    // 总是显示语音按钮 + 打字备选
+    this.ui.setMicState('idle');
+    this.ui.hideMicError();
+
+    const hint = supportsVoice
+      ? '点击上方按钮开始语音输入'
+      : '⚠️ 当前浏览器不支持语音识别，请用下方按钮打字输入';
+    this.ui.showSpeakStart(hint);
+
+    // 不支持语音时也显示文本输入备选
+    if (!supportsVoice || mode === 'TEXT_ONLY' || mode === 'TEXT_INPUT') {
+      const switchBtn = document.getElementById('btn-switch-to-text');
+      if (switchBtn) {
+        switchBtn.textContent = '⌨️ 打字输入';
+        switchBtn.style.display = 'inline-block';
+      }
     }
+
+    console.log('[App] _startUserTurn, mode:', mode, 'supportsVoice:', supportsVoice);
   }
 
   // 用户点击按钮后启动语音识别
@@ -424,17 +440,28 @@ class App {
     const turn = this.dialogue?.getCurrentTurn();
     if (!turn) return;
 
-    // 隐藏按钮，显示麦克风
+    console.log('[App] _onStartSpeaking called, turn:', turn.id);
+
+    // 隐藏按钮和错误，显示麦克风
     this.ui.hideSpeakStart();
+    this.ui.hideMicError();
     this.ui.showMicInput();
     this.ui.setMicState('listening');
 
-    await this._startListening(turn);
+    try {
+      await this._startListening(turn);
+    } catch (e) {
+      console.error('[App] _onStartSpeaking error:', e.message);
+      this.ui.showMicError('语音启动失败: ' + e.message);
+      this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
+    }
   }
 
   async _startListening(turn) {
+    console.log('[App] _startListening, speech supported:', this.speech.supportsRecognition);
     // 显示实时识别结果回调
     this.speech.onInterimResult = (text) => {
+      console.log('[App] interim:', text);
       this.ui.addInterimBubble(text);
     };
 
@@ -447,6 +474,7 @@ class App {
         silenceTimeout: this.difficultyCtrl.getSpeechTimeout()
       });
 
+      console.log('[App] listening result:', result);
       this.ui.removeInterimBubble();
 
       if (result.silent) {
@@ -456,21 +484,25 @@ class App {
         this._handleUserInput(result.transcript);
       }
     } catch (error) {
-      console.warn('Speech recognition error:', error.message);
+      console.warn('[App] Speech recognition error:', error.message, error);
 
-      // "not-allowed" 表示浏览器拒绝（需用户手势或麦克风权限）
-      if (error.message === 'not-allowed') {
-        this.ui.setMicState('idle');
-        // 重新显示按钮让用户再次尝试
-        this.ui.showSpeakStart();
-        // 短暂提示
-        this.ui.setMicState('idle');
-        const statusEl = document.getElementById('mic-status-text');
-        if (statusEl) statusEl.textContent = '⚠️ 请允许麦克风权限后重试';
+      this.ui.setMicState('idle');
+
+      if (error.message === 'not-allowed' || error.message?.includes('not-allowed')) {
+        this.ui.showMicError('⚠️ 麦克风权限未授权，请在浏览器设置中允许麦克风访问');
+        this.ui.showSpeakStart('请授权后重试，或点下方「打字输入」');
+      } else if (error.message === 'NOT_SUPPORTED') {
+        this.ui.showMicError('当前浏览器不支持语音识别');
+        this.ui.showSpeakStart('请使用 Chrome 浏览器，或点下方「打字输入」');
+      } else if (error.message === 'network') {
+        this.ui.showMicError('语音识别网络错误，请检查网络连接');
+        this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
       } else {
-        // 其他错误降级为文字输入
-        this.ui.showTextInput();
+        this.ui.showMicError('语音出错: ' + error.message);
+        this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
       }
+
+      throw error; // 重新抛出给 _onStartSpeaking 处理
     }
   }
 

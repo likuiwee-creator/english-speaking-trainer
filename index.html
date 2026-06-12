@@ -282,25 +282,27 @@
       <button class="btn-primary btn-large" id="btn-start-speaking">
         <span>🎤 点击开始说话</span>
       </button>
+      <div id="speak-mode-hint" style="font-size:12px;color:#888;margin-top:8px;text-align:center;"></div>
     </div>
-    <!-- 麦克风区域 (开始后显示) -->
+    <!-- 麦克风区域 -->
     <div id="mic-area" style="display:none">
-      <div id="mic-visualizer">
-        <canvas id="mic-canvas"></canvas>
-      </div>
-      <div id="mic-status-text">🎤 正在聆听…</div>
+      <div id="mic-status-text" style="text-align:center;font-size:14px;font-weight:500;">🎤 正在聆听…</div>
       <div id="mic-waveform">
         <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
         <span class="wave-bar"></span><span class="wave-bar"></span>
       </div>
+      <div id="mic-error-msg" style="display:none;font-size:12px;color:#FF4D4F;text-align:center;margin-top:4px;"></div>
     </div>
-    <!-- 文本输入降级 -->
+    <!-- 文本输入 -->
     <div id="text-input-area" style="display:none">
       <input type="text" id="text-input-field" placeholder="输入你说的英文…" autocomplete="off">
       <button id="btn-text-submit">发送</button>
     </div>
-    <!-- 跳过按钮 -->
-    <button class="btn-skip" id="btn-skip-turn">跳过此句</button>
+    <!-- 底部操作行 -->
+    <div id="footer-actions" style="display:flex;gap:8px;justify-content:center;align-items:center;">
+      <button class="btn-text" id="btn-switch-to-text" style="display:none;font-size:12px;color:#4A90D9;">⌨️ 打字输入</button>
+      <button class="btn-skip" id="btn-skip-turn">跳过</button>
+    </div>
   </footer>
 
   <script type="module" src="js/app.js"></script>

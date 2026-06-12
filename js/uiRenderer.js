@@ -17,8 +17,9 @@ export class UIRenderer {
       'state-dialogue-ready', 'state-dialogue-active', 'state-correcting',
       'state-correction-feedback', 'state-extend-training',
       'state-report-generating', 'state-report-display', 'state-history',
-      'footer-bar', 'speak-start-area', 'mic-area', 'text-input-area', 'mic-waveform',
-      'mic-status-text', 'btn-start-speaking', 'btn-skip-turn', 'text-input-field', 'btn-text-submit',
+      'footer-bar', 'speak-start-area', 'speak-mode-hint', 'mic-area', 'text-input-area', 'mic-waveform',
+      'mic-status-text', 'mic-error-msg', 'btn-start-speaking', 'btn-skip-turn', 'btn-switch-to-text',
+      'footer-actions', 'text-input-field', 'btn-text-submit',
       'dialogue-chat-area', 'dialogue-hint-area', 'dialogue-hint-text',
       'dialogue-progress', 'dialogue-diff-badge', 'compat-badge'
     ];
@@ -270,25 +271,48 @@ export class UIRenderer {
     if (this.elements['speak-start-area']) this.elements['speak-start-area'].style.display = 'none';
     if (this.elements['mic-area']) this.elements['mic-area'].style.display = 'none';
     if (this.elements['text-input-area']) this.elements['text-input-area'].style.display = 'flex';
+    if (this.elements['btn-switch-to-text']) this.elements['btn-switch-to-text'].style.display = 'none';
+    if (this.elements['btn-skip-turn']) this.elements['btn-skip-turn'].style.display = 'block';
   }
 
   showMicInput() {
     if (this.elements['speak-start-area']) this.elements['speak-start-area'].style.display = 'none';
-    if (this.elements['mic-area']) this.elements['mic-area'].style.display = 'flex';
+    if (this.elements['mic-area']) this.elements['mic-area'].style.display = 'block';
     if (this.elements['text-input-area']) this.elements['text-input-area'].style.display = 'none';
-  }
-
-  // 显示「点击开始说话」按钮（用户手势触发前）
-  showSpeakStart() {
-    if (this.elements['speak-start-area']) this.elements['speak-start-area'].style.display = 'block';
-    if (this.elements['mic-area']) this.elements['mic-area'].style.display = 'none';
-    if (this.elements['text-input-area']) this.elements['text-input-area'].style.display = 'none';
+    if (this.elements['btn-switch-to-text']) this.elements['btn-switch-to-text'].style.display = 'inline-block';
     if (this.elements['btn-skip-turn']) this.elements['btn-skip-turn'].style.display = 'block';
   }
 
-  // 开始说话后隐藏按钮、显示麦克风
+  // 显示「点击开始说话」按钮
+  showSpeakStart(modeHint) {
+    if (this.elements['speak-start-area']) this.elements['speak-start-area'].style.display = 'block';
+    if (this.elements['mic-area']) this.elements['mic-area'].style.display = 'none';
+    if (this.elements['text-input-area']) this.elements['text-input-area'].style.display = 'none';
+    if (this.elements['btn-switch-to-text']) this.elements['btn-switch-to-text'].style.display = 'inline-block';
+    if (this.elements['btn-skip-turn']) this.elements['btn-skip-turn'].style.display = 'block';
+    // 显示模式提示
+    if (this.elements['speak-mode-hint']) {
+      this.elements['speak-mode-hint'].textContent = modeHint || '';
+    }
+  }
+
+  // 开始说话后隐藏按钮
   hideSpeakStart() {
     if (this.elements['speak-start-area']) this.elements['speak-start-area'].style.display = 'none';
+  }
+
+  // 显示麦克风错误
+  showMicError(msg) {
+    if (this.elements['mic-error-msg']) {
+      this.elements['mic-error-msg'].style.display = 'block';
+      this.elements['mic-error-msg'].textContent = msg;
+    }
+  }
+
+  hideMicError() {
+    if (this.elements['mic-error-msg']) {
+      this.elements['mic-error-msg'].style.display = 'none';
+    }
   }
 
   getTextInput() {
