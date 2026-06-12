@@ -137,24 +137,37 @@ export class UIRenderer {
     const id = 'audio_' + Date.now();
     b.innerHTML = `
       <div class="audio-player">
-        <button class="audio-play-btn" id="${id}_btn" onclick="
-          const a=document.getElementById('${id}');
-          const btn=document.getElementById('${id}_btn');
-          if(a.paused){a.play();btn.textContent='⏸'}else{a.pause();btn.textContent='▶️'}
-        ">▶️</button>
+        <button class="audio-play-btn" data-audio-id="${id}">▶️</button>
         <div class="audio-wave-visual">
           <span class="aw-bar"></span><span class="aw-bar"></span><span class="aw-bar"></span>
           <span class="aw-bar"></span><span class="aw-bar"></span><span class="aw-bar"></span>
           <span class="aw-bar"></span><span class="aw-bar"></span>
         </div>
         <span class="audio-time" id="${id}_time">0:00</span>
-        <audio id="${id}" src="${audioUrl}" preload="auto"
-          ontimeupdate="document.getElementById('${id}_time').textContent=Math.floor(this.currentTime/60)+':'+String(Math.floor(this.currentTime%60)).padStart(2,'0')"
-          onended="document.getElementById('${id}_btn').textContent='▶️'"
-          onloadedmetadata="document.getElementById('${id}_time').textContent=Math.floor(this.duration/60)+':'+String(Math.floor(this.duration%60)).padStart(2,'0')"
-        ></audio>
+        <audio id="${id}" src="${audioUrl}" preload="auto"></audio>
       </div>`;
-    c.appendChild(b); c.scrollTop = c.scrollHeight;
+    c.appendChild(b);
+
+    // 绑定播放/暂停事件
+    const audio = document.getElementById(id);
+    const btn = b.querySelector('.audio-play-btn');
+    const timeEl = document.getElementById(`${id}_time`);
+    if (audio && btn) {
+      audio.addEventListener('loadedmetadata', () => {
+        if (timeEl && audio.duration) {
+          timeEl.textContent = Math.floor(audio.duration/60) + ':' + String(Math.floor(audio.duration%60)).padStart(2,'0');
+        }
+      });
+      audio.addEventListener('timeupdate', () => {
+        if (timeEl) timeEl.textContent = Math.floor(audio.currentTime/60) + ':' + String(Math.floor(audio.currentTime%60)).padStart(2,'0');
+      });
+      audio.addEventListener('ended', () => { btn.textContent = '▶️'; });
+      btn.addEventListener('click', () => {
+        if (audio.paused) { audio.play(); btn.textContent = '⏸'; }
+        else { audio.pause(); btn.textContent = '▶️'; }
+      });
+    }
+    c.scrollTop = c.scrollHeight;
   }
   updateProgress(cur, total) { const e = this.elements['dialogue-progress']; if (e) e.textContent = `第 ${cur}/${total} 句`; }
   updateDifficultyBadge(label) { const e = this.elements['dialogue-diff-badge']; if (e) e.textContent = label; }

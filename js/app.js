@@ -29,6 +29,9 @@ class App {
     this.dialogue = null;
     this.recorder = null;
     this.currentAudioBlob = null;    // 当前录音
+    this._recordingPromise = null;
+    this._recordingActive = false;
+    this._lastAudioUrl = null;
     this.selectedRole = null;
     this.selectedRoleId = null;
     this.originalPassage = '';
@@ -155,18 +158,24 @@ class App {
     // 麦克风按钮（长按录音，松手停止 — 微信式交互）
     const micBtn = document.getElementById('btn-mic');
     if (micBtn) {
+      this._recordingActive = false;
       const startRecord = (e) => {
         e.preventDefault();
-        this._startRecording();
+        if (!this._recordingActive) {
+          this._recordingActive = true;
+          this._startRecording();
+        }
       };
       const stopRecord = (e) => {
         e.preventDefault();
-        this._stopRecording();
+        if (this._recordingActive) {
+          this._recordingActive = false;
+          this._stopRecording();
+        }
       };
       micBtn.addEventListener('mousedown', startRecord);
       micBtn.addEventListener('touchstart', startRecord, { passive: false });
       micBtn.addEventListener('mouseup', stopRecord);
-      micBtn.addEventListener('mouseleave', stopRecord);
       micBtn.addEventListener('touchend', stopRecord);
       micBtn.addEventListener('touchcancel', stopRecord);
     }
@@ -408,7 +417,7 @@ class App {
       }
 
       // 更新底部状态
-      this.ui.setMicButtonStyle('speaking');
+      this.ui.setMicButtonStyle('disabled');
 
       // TTS 播放 AI 的话
       const voiceOpts = ROLES[turn.speakerRole]?.voice || {};
@@ -447,16 +456,19 @@ class App {
 
   // 停止录音并分析（松手触发）
   async _stopRecording() {
-    if (!this.speech.isRecording) return;
+    if (!this.speech || !this.speech.isRecording) return;
+    if (!this._recordingPromise) return;
     console.log('[App] stop recording...');
     this.speech.stopRecording();
+    this._recordingActive = false;
     this.ui.setMicButtonStyle('idle');
     this.ui.setMicStatus('正在评价发音…', '#4A90D9');
 
     try {
       const result = await this._recordingPromise;
-      if (!result || !result.blob) {
-        this.ui.setMicStatus('录音太短，请重新录制', '#FF4D4F');
+      this._recordingPromise = null;
+      if (!result || !result.blob || result.blob.size < 100) {
+        this.ui.setMicStatus('录音太短（< 0.5秒），请重新录制', '#FF4D4F');
         return;
       }
 
