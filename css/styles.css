@@ -679,6 +679,63 @@ body {
   font-style: italic;
 }
 
+/* 音频消息气泡 */
+.audio-bubble {
+  min-width: 200px;
+  padding: 10px 14px !important;
+}
+.audio-player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.audio-play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.audio-wave-visual {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 24px;
+  flex: 1;
+}
+.aw-bar {
+  width: 3px;
+  background: var(--color-primary);
+  border-radius: 1px;
+  animation: awAnimate 1.2s ease-in-out infinite;
+}
+.aw-bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+.aw-bar:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+.aw-bar:nth-child(3) { height: 10px; animation-delay: 0.25s; }
+.aw-bar:nth-child(4) { height: 20px; animation-delay: 0.35s; }
+.aw-bar:nth-child(5) { height: 6px; animation-delay: 0.5s; }
+.aw-bar:nth-child(6) { height: 14px; animation-delay: 0.6s; }
+.aw-bar:nth-child(7) { height: 18px; animation-delay: 0.7s; }
+.aw-bar:nth-child(8) { height: 9px; animation-delay: 0.8s; }
+@keyframes awAnimate {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+.audio-time {
+  font-size: var(--font-xs);
+  color: var(--color-text-secondary);
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 /* 提示区域 */
 .dialogue-hint {
   background: var(--color-hint-bg);

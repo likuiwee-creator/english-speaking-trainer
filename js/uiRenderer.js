@@ -128,6 +128,34 @@ export class UIRenderer {
     c.appendChild(b); c.scrollTop = c.scrollHeight;
   }
   removeInterimBubble() { const e = document.querySelector('.chat-bubble.recording'); if (e) e.remove(); }
+
+  // 音频消息气泡（可回放）
+  addAudioBubble(audioUrl) {
+    const c = this.elements['dialogue-chat-area']; if (!c) return;
+    const b = document.createElement('div');
+    b.className = 'chat-bubble user audio-bubble';
+    const id = 'audio_' + Date.now();
+    b.innerHTML = `
+      <div class="audio-player">
+        <button class="audio-play-btn" id="${id}_btn" onclick="
+          const a=document.getElementById('${id}');
+          const btn=document.getElementById('${id}_btn');
+          if(a.paused){a.play();btn.textContent='⏸'}else{a.pause();btn.textContent='▶️'}
+        ">▶️</button>
+        <div class="audio-wave-visual">
+          <span class="aw-bar"></span><span class="aw-bar"></span><span class="aw-bar"></span>
+          <span class="aw-bar"></span><span class="aw-bar"></span><span class="aw-bar"></span>
+          <span class="aw-bar"></span><span class="aw-bar"></span>
+        </div>
+        <span class="audio-time" id="${id}_time">0:00</span>
+        <audio id="${id}" src="${audioUrl}" preload="auto"
+          ontimeupdate="document.getElementById('${id}_time').textContent=Math.floor(this.currentTime/60)+':'+String(Math.floor(this.currentTime%60)).padStart(2,'0')"
+          onended="document.getElementById('${id}_btn').textContent='▶️'"
+          onloadedmetadata="document.getElementById('${id}_time').textContent=Math.floor(this.duration/60)+':'+String(Math.floor(this.duration%60)).padStart(2,'0')"
+        ></audio>
+      </div>`;
+    c.appendChild(b); c.scrollTop = c.scrollHeight;
+  }
   updateProgress(cur, total) { const e = this.elements['dialogue-progress']; if (e) e.textContent = `第 ${cur}/${total} 句`; }
   updateDifficultyBadge(label) { const e = this.elements['dialogue-diff-badge']; if (e) e.textContent = label; }
   showHint(text) {

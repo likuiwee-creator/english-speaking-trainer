@@ -152,10 +152,24 @@ class App {
       this._skipTurn();
     });
 
-    // 麦克风按钮（录音开关：点一下开始，再点停止并分析）
-    document.getElementById('btn-mic')?.addEventListener('click', () => {
-      this._onMicClick();
-    });
+    // 麦克风按钮（长按录音，松手停止 — 微信式交互）
+    const micBtn = document.getElementById('btn-mic');
+    if (micBtn) {
+      const startRecord = (e) => {
+        e.preventDefault();
+        this._startRecording();
+      };
+      const stopRecord = (e) => {
+        e.preventDefault();
+        this._stopRecording();
+      };
+      micBtn.addEventListener('mousedown', startRecord);
+      micBtn.addEventListener('touchstart', startRecord, { passive: false });
+      micBtn.addEventListener('mouseup', stopRecord);
+      micBtn.addEventListener('mouseleave', stopRecord);
+      micBtn.addEventListener('touchend', stopRecord);
+      micBtn.addEventListener('touchcancel', stopRecord);
+    }
 
     // 文本输入提交
     document.getElementById('btn-text-submit')?.addEventListener('click', () => {
@@ -415,71 +429,76 @@ class App {
     console.log('[App] turn ready, mode:', this.speech.getFallbackMode());
   }
 
-  // 点击麦克风按钮 —— 录音 + 发音评价 (开关式)
-  async _onMicClick() {
-    // 正在录音中 → 停止并分析
-    if (this.speech.isRecording) {
-      console.log('[App] stopping recording...');
-      this.speech.stopRecording();
-      this.ui.setMicButtonStyle('idle');
-      this.ui.setMicStatus('录音完成，正在评价发音…', '#4A90D9');
-
-      try {
-        // 等待录音完成
-        const result = await this._recordingPromise;
-
-        // 分析发音
-        const turn = this.dialogue?.getCurrentTurn();
-        const expectedText = turn?.originalText || '';
-        const pronReport = await this.pronAnalyzer.analyze(
-          result.blob,
-          expectedText,
-          '' // 不依赖转文字
-        );
-
-        console.log('[App] Pronunciation report:', pronReport);
-
-        // 显示评价
-        this.stateMachine.transition('CORRECTION_FEEDBACK');
-        this.ui.showPronunciationFeedback(pronReport, expectedText);
-
-        // 记录
-        if (turn) {
-          this.dialogue.recordUserInput(turn.id, '(语音)', { overallScore: pronReport.overall, errors: [] });
-          this.recorder?.logTurn({ ...turn, userInput: '(语音)', score: pronReport.overall });
-        }
-
-        // 自动倒计时
-        this.countdownTimer = this.ui.startCorrectionCountdown(
-          CONFIG.training.repeatCountdown,
-          () => {
-            this.stateMachine.transition('DIALOGUE_ACTIVE');
-            this._nextDialogueTurn();
-          }
-        );
-      } catch (e) {
-        console.warn('[App] Recording process error:', e.message);
-        this.ui.setMicStatus('处理出错，请重试', '#FF4D4F');
-        this.ui.focusTextInput();
-      }
-      return;
-    }
-
-    // 开始录音
-    console.log('[App] starting recording...');
+  // 开始录音（长按触发）
+  async _startRecording() {
+    if (this.speech.isRecording) return;
+    console.log('[App] start recording...');
     this.ui.setMicButtonStyle('recording');
-    this.ui.setMicStatus('🔴 正在录音，读完点🎤停止', '#FF4D4F');
+    this.ui.setMicStatus('🔴 正在录音，松手停止', '#FF4D4F');
 
     try {
       this._recordingPromise = this.speech.startRecording();
     } catch (e) {
-      console.warn('[App] Recording failed:', e.message);
+      console.warn('[App] Recording start failed:', e.message);
       this.ui.setMicButtonStyle('idle');
-      if (e.message?.includes('Permission') || e.message?.includes('NotAllowed')) {
-        this.ui.setMicStatus('麦克风权限被拒绝', '#FF4D4F');
-      } else {
-        this.ui.setMicStatus('录音失败，请打字输入', '#FF4D4F');
+      this.ui.setMicStatus('录音失败: ' + (e.message?.includes('Permission') ? '麦克风权限被拒绝' : e.message), '#FF4D4F');
+    }
+  }
+
+  // 停止录音并分析（松手触发）
+  async _stopRecording() {
+    if (!this.speech.isRecording) return;
+    console.log('[App] stop recording...');
+    this.speech.stopRecording();
+    this.ui.setMicButtonStyle('idle');
+    this.ui.setMicStatus('正在评价发音…', '#4A90D9');
+
+    try {
+      const result = await this._recordingPromise;
+      if (!result || !result.blob) {
+        this.ui.setMicStatus('录音太短，请重新录制', '#FF4D4F');
+        return;
       }
+
+      // 生成可播放的音频 URL
+      const audioUrl = URL.createObjectURL(result.blob);
+      this._lastAudioUrl = audioUrl;
+
+      // 在聊天区显示音频气泡
+      this.ui.addAudioBubble(audioUrl);
+
+      // 分析发音
+      const turn = this.dialogue?.getCurrentTurn();
+      const expectedText = turn?.originalText || '';
+      const pronReport = await this.pronAnalyzer.analyze(
+        result.blob,
+        expectedText,
+        ''
+      );
+
+      console.log('[App] Pronunciation report:', pronReport);
+
+      // 显示评价
+      this.stateMachine.transition('CORRECTION_FEEDBACK');
+      this.ui.showPronunciationFeedback(pronReport, expectedText);
+
+      // 记录
+      if (turn) {
+        this.dialogue.recordUserInput(turn.id, '(语音)', { overallScore: pronReport.overall, errors: [] });
+        this.recorder?.logTurn({ ...turn, userInput: '(语音)', score: pronReport.overall });
+      }
+
+      // 自动倒计时
+      this.countdownTimer = this.ui.startCorrectionCountdown(
+        CONFIG.training.repeatCountdown,
+        () => {
+          this.stateMachine.transition('DIALOGUE_ACTIVE');
+          this._nextDialogueTurn();
+        }
+      );
+    } catch (e) {
+      console.warn('[App] Recording stop error:', e.message);
+      this.ui.setMicStatus('处理出错，请重试', '#FF4D4F');
       this.ui.focusTextInput();
     }
   }

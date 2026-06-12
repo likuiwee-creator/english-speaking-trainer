@@ -156,7 +156,11 @@ export class SpeechEngine {
   speak(text, options = {}) {
     return new Promise((resolve) => {
       if (!this.supportsSynthesis || !text) { resolve(); return; }
-      this.synthesis.cancel();
+
+      // 确保语音引擎已唤醒（部分浏览器需要）
+      if (this.synthesis.paused || this.synthesis.speaking) {
+        this.synthesis.cancel();
+      }
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = options.lang || CONFIG.tts.lang;
@@ -164,21 +168,55 @@ export class SpeechEngine {
       utterance.pitch = options.pitch ?? CONFIG.tts.defaultPitch;
       utterance.volume = options.volume ?? CONFIG.tts.volume;
 
-      const voices = this.synthesis.getVoices();
-      const enVoice = voices.find(v =>
-        v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))
-      ) || voices.find(v => v.lang.startsWith('en-US')) || voices.find(v => v.lang.startsWith('en'));
-      if (enVoice) utterance.voice = enVoice;
-
-      this.isSpeaking = true;
-      let done = false;
-      const finish = () => { if (!done) { done = true; this.isSpeaking = false; resolve(); } };
-
-      utterance.onend = finish;
-      utterance.onerror = finish;
-      setTimeout(finish, 30000);
-      this.synthesis.speak(utterance);
+      // 选择最佳英文语音（可能是异步加载的）
+      let voices = this.synthesis.getVoices();
+      if (voices.length === 0) {
+        // 语音还没加载，等待 onvoiceschanged
+        this.synthesis.onvoiceschanged = () => {
+          voices = this.synthesis.getVoices();
+          this._setVoice(utterance, voices);
+          this._doSpeak(utterance, resolve);
+          this.synthesis.onvoiceschanged = null;
+        };
+      } else {
+        this._setVoice(utterance, voices);
+        this._doSpeak(utterance, resolve);
+      }
     });
+  }
+
+  _setVoice(utterance, voices) {
+    const enVoice = voices.find(v =>
+      v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))
+    ) || voices.find(v => v.lang.startsWith('en-US'))
+    || voices.find(v => v.lang.startsWith('en'));
+    if (enVoice) utterance.voice = enVoice;
+  }
+
+  _doSpeak(utterance, resolve) {
+    this.isSpeaking = true;
+    let done = false;
+    const finish = () => { if (!done) { done = true; this.isSpeaking = false; resolve(); } };
+
+    utterance.onend = finish;
+    utterance.onerror = (e) => {
+      console.warn('TTS error:', e.error);
+      finish();
+    };
+
+    // 超时兜底
+    const timeout = setTimeout(finish, 30000);
+
+    // Android Chrome 需要这个技巧：先 cancel 再 delay 再 speak
+    this.synthesis.cancel();
+    setTimeout(() => {
+      this.synthesis.speak(utterance);
+    }, 50);
+
+    // 确保 AudioContext 被唤醒
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
   }
 
   cancelSpeech() {
