@@ -1,4 +1,4 @@
-// speechEngine.js - 语音识别 + 语音合成封装
+// speechEngine.js - 语音引擎：SpeechRecognition (降级) + MediaRecorder 录音 + TTS
 import { CONFIG } from './config.js';
 
 export class SpeechEngine {
@@ -7,6 +7,10 @@ export class SpeechEngine {
     this.synthesis = window.speechSynthesis;
     this.isListening = false;
     this.isSpeaking = false;
+    this.isRecording = false;
+    this.mediaRecorder = null;
+    this.audioChunks = [];
+    this.audioStream = null;
     this.silenceTimer = null;
     this.onInterimResult = null;
     this.onFinalResult = null;
@@ -14,149 +18,144 @@ export class SpeechEngine {
 
     // 兼容性检测
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    this.supportsRecognition = !!SR;
+    this.supportsSpeechAPI = !!SR;
     this.supportsSynthesis = !!window.speechSynthesis;
+    this.supportsMediaRecorder = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 
-    // 预加载语音列表
     if (this.supportsSynthesis) {
       this.synthesis.getVoices();
       this.synthesis.onvoiceschanged = () => this.synthesis.getVoices();
     }
   }
 
-  // 获取降级模式
+  // 降级模式
   getFallbackMode() {
-    if (!this.supportsRecognition && !this.supportsSynthesis) return 'TEXT_ONLY';
-    if (!this.supportsRecognition) return 'TEXT_INPUT';
-    if (!this.supportsSynthesis) return 'VOICE_ONLY';
-    return 'FULL';
+    if (this.supportsSpeechAPI) return 'FULL';
+    if (this.supportsMediaRecorder) return 'RECORD_ONLY';
+    return 'TEXT_ONLY';
   }
 
-  // ========== 语音识别 ==========
-
-  startListening(options = {}) {
+  // ========== 方式1: Web Speech API ==========
+  startSpeechRecognition(options = {}) {
     return new Promise((resolve, reject) => {
-      if (!this.supportsRecognition) {
-        reject(new Error('NOT_SUPPORTED'));
-        return;
-      }
-
       const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { reject(new Error('NOT_SUPPORTED')); return; }
+
       this.recognition = new SR();
       this.recognition.lang = options.lang || CONFIG.speech.lang;
-      this.recognition.continuous = options.continuous ?? CONFIG.speech.continuous;
-      this.recognition.interimResults = options.interimResults ?? CONFIG.speech.interimResults;
-      this.recognition.maxAlternatives = options.maxAlternatives ?? CONFIG.speech.maxAlternatives;
+      this.recognition.continuous = false;
+      this.recognition.interimResults = true;
+      this.recognition.maxAlternatives = 3;
 
       let finalTranscript = '';
-      let bestConfidence = 0;
-      let hasSpeech = false; // 检测是否有人说话
+      let hasSpeech = false;
 
       this.recognition.onstart = () => {
         this.isListening = true;
-        // 启动静默超时
         this.silenceTimer = setTimeout(() => {
           if (!hasSpeech) {
-            this.stopListening();
-            resolve({ transcript: '', confidence: 0, silent: true });
+            this.stopAll();
+            resolve({ transcript: '', silent: true, method: 'speech_api' });
           }
-        }, options.silenceTimeout || CONFIG.speech.silenceTimeout);
+        }, options.silenceTimeout || 5000);
       };
 
       this.recognition.onaudiostart = () => {
         hasSpeech = true;
-        if (this.silenceTimer) {
-          clearTimeout(this.silenceTimer);
-          this.silenceTimer = null;
-        }
+        if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
       };
 
       this.recognition.onresult = (event) => {
-        let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          if (result.isFinal) {
-            finalTranscript = result[0].transcript;
-            bestConfidence = result[0].confidence;
-          } else {
-            interim += result[0].transcript;
-          }
-        }
-        // 实时回调
-        if (this.onInterimResult) {
-          this.onInterimResult(interim || finalTranscript);
+          const r = event.results[i];
+          if (r.isFinal) { finalTranscript = r[0].transcript; }
+          else if (this.onInterimResult) { this.onInterimResult(r[0].transcript); }
         }
       };
 
       this.recognition.onspeechend = () => {
         this.isListening = false;
-        if (this.silenceTimer) {
-          clearTimeout(this.silenceTimer);
-          this.silenceTimer = null;
-        }
+        if (this.silenceTimer) { clearTimeout(this.silenceTimer); }
         this.recognition.stop();
-        if (this.onFinalResult) {
-          this.onFinalResult(finalTranscript);
-        }
-        resolve({
-          transcript: finalTranscript.trim(),
-          confidence: bestConfidence,
-          silent: !finalTranscript.trim()
-        });
+        if (this.onFinalResult) this.onFinalResult(finalTranscript);
+        resolve({ transcript: finalTranscript.trim(), silent: !finalTranscript.trim(), method: 'speech_api' });
       };
 
       this.recognition.onerror = (event) => {
         this.isListening = false;
-        if (this.silenceTimer) {
-          clearTimeout(this.silenceTimer);
-          this.silenceTimer = null;
-        }
-        const err = new Error(event.error);
-        if (this.onError) this.onError(err);
-        reject(err);
+        if (this.silenceTimer) { clearTimeout(this.silenceTimer); }
+        reject(new Error(event.error));
       };
 
-      this.recognition.onnomatch = () => {
-        // 说了但没识别到，也算有声音
-        hasSpeech = true;
-      };
+      this.recognition.onend = () => { this.isListening = false; };
 
-      this.recognition.onend = () => {
-        this.isListening = false;
-      };
-
-      try {
-        this.recognition.start();
-      } catch (e) {
-        this.isListening = false;
-        reject(e);
-      }
+      try { this.recognition.start(); }
+      catch (e) { this.isListening = false; reject(e); }
     });
   }
 
-  stopListening() {
-    if (this.recognition && this.isListening) {
-      try {
-        this.recognition.stop();
-      } catch (e) { /* ignore */ }
-      this.isListening = false;
-    }
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-      this.silenceTimer = null;
+  // ========== 方式2: MediaRecorder 录音 ==========
+  async startRecording() {
+    if (!this.supportsMediaRecorder) throw new Error('NOT_SUPPORTED');
+
+    this.audioChunks = [];
+    this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : 'audio/webm';
+
+    this.mediaRecorder = new MediaRecorder(this.audioStream, { mimeType });
+    this.isRecording = true;
+
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this.audioChunks.push(e.data);
+    };
+
+    return new Promise((resolve, reject) => {
+      this.mediaRecorder.onstop = async () => {
+        this.isRecording = false;
+        const blob = new Blob(this.audioChunks, { type: mimeType });
+        this._releaseStream();
+        resolve({ blob, method: 'media_recorder' });
+      };
+
+      this.mediaRecorder.onerror = (e) => {
+        this.isRecording = false;
+        this._releaseStream();
+        reject(new Error('recorder_error'));
+      };
+
+      this.mediaRecorder.start();
+    });
+  }
+
+  stopRecording() {
+    if (this.mediaRecorder && this.isRecording) {
+      try { this.mediaRecorder.stop(); } catch (e) { /* ignore */ }
     }
   }
 
-  // ========== 语音合成 (TTS) ==========
+  _releaseStream() {
+    if (this.audioStream) {
+      this.audioStream.getTracks().forEach(t => t.stop());
+      this.audioStream = null;
+    }
+  }
 
+  // 将录音 blob 转为 base64
+  blobToBase64(blob) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // ========== TTS 语音合成 ==========
   speak(text, options = {}) {
     return new Promise((resolve) => {
-      if (!this.supportsSynthesis || !text) {
-        resolve();
-        return;
-      }
-
-      // 取消之前的语音
+      if (!this.supportsSynthesis || !text) { resolve(); return; }
       this.synthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
@@ -165,56 +164,34 @@ export class SpeechEngine {
       utterance.pitch = options.pitch ?? CONFIG.tts.defaultPitch;
       utterance.volume = options.volume ?? CONFIG.tts.volume;
 
-      // 选择最佳英文语音
       const voices = this.synthesis.getVoices();
       const enVoice = voices.find(v =>
-        v.lang.startsWith('en') &&
-        (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))
-      ) || voices.find(v => v.lang.startsWith('en-US'))
-        || voices.find(v => v.lang.startsWith('en'));
-
+        v.lang.startsWith('en') && (v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel'))
+      ) || voices.find(v => v.lang.startsWith('en-US')) || voices.find(v => v.lang.startsWith('en'));
       if (enVoice) utterance.voice = enVoice;
 
       this.isSpeaking = true;
+      let done = false;
+      const finish = () => { if (!done) { done = true; this.isSpeaking = false; resolve(); } };
 
-      utterance.onend = () => {
-        this.isSpeaking = false;
-        resolve();
-      };
-
-      utterance.onerror = () => {
-        this.isSpeaking = false;
-        resolve();
-      };
-
-      // 某些浏览器需要用户交互后才能 speak，用 timeout 兜底
-      const timeout = setTimeout(() => {
-        if (this.isSpeaking) {
-          this.isSpeaking = false;
-          resolve();
-        }
-      }, 30000);
-
-      utterance.onend = () => {
-        clearTimeout(timeout);
-        this.isSpeaking = false;
-        resolve();
-      };
-
+      utterance.onend = finish;
+      utterance.onerror = finish;
+      setTimeout(finish, 30000);
       this.synthesis.speak(utterance);
     });
   }
 
-  // 停止所有语音
   cancelSpeech() {
-    if (this.supportsSynthesis) {
-      this.synthesis.cancel();
-      this.isSpeaking = false;
-    }
+    if (this.supportsSynthesis) { this.synthesis.cancel(); this.isSpeaking = false; }
   }
 
-  // 获取可用语音列表
-  getVoices() {
-    return this.supportsSynthesis ? this.synthesis.getVoices() : [];
+  stopAll() {
+    if (this.recognition && this.isListening) {
+      try { this.recognition.stop(); } catch (e) {}
+      this.isListening = false;
+    }
+    this.stopRecording();
+    this.cancelSpeech();
+    if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
   }
 }

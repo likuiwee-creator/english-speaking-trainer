@@ -131,9 +131,9 @@ class App {
     document.getElementById('btn-listen-demo')?.addEventListener('click', () => {
       const text = document.getElementById('correction-correct-text')?.textContent;
       if (text) {
-        this.ui.setMicState('speaking');
+        this.ui.setMicButtonStyle('disabled');
         this.speech.speak(text).then(() => {
-          this.ui.setMicState('idle');
+          this.ui.setMicButtonStyle('idle');
         });
       }
     });
@@ -149,14 +149,9 @@ class App {
       this._skipTurn();
     });
 
-    // 开始说话按钮（用户手势触发语音识别）
-    document.getElementById('btn-start-speaking')?.addEventListener('click', () => {
+    // 麦克风按钮（录音 / 语音识别）
+    document.getElementById('btn-mic')?.addEventListener('click', () => {
       this._onStartSpeaking();
-    });
-
-    // 切换到文字输入模式
-    document.getElementById('btn-switch-to-text')?.addEventListener('click', () => {
-      this.ui.showTextInput();
     });
 
     // 文本输入提交
@@ -396,140 +391,132 @@ class App {
       }
 
       // 更新底部状态
-      this.ui.setMicState('speaking');
+      this.ui.setMicButtonStyle('speaking');
 
       // TTS 播放 AI 的话
       const voiceOpts = ROLES[turn.speakerRole]?.voice || {};
       await this.speech.speak(turn.aiPrompt.text, voiceOpts);
-
-      // 播放完成后自动进入聆听
-      this.ui.setMicState('idle');
     }
 
-    // 用户回合开始
+    // 用户回合开始 — 显示输入界面
     this._startUserTurn(turn);
   }
 
   _startUserTurn(turn) {
-    const mode = this.speech.getFallbackMode();
-    const supportsVoice = this.speech.supportsRecognition;
+    // 文字输入始终可用，清空并聚焦
+    this.ui.clearTextInput();
+    this.ui.focusTextInput();
+    this.ui.setMicButtonStyle('idle');
+    this.ui.setMicStatus('', '#888');
 
-    // 总是显示语音按钮 + 打字备选
-    this.ui.setMicState('idle');
-    this.ui.hideMicError();
+    console.log('[App] turn ready, mode:', this.speech.getFallbackMode());
+  }
 
-    const hint = supportsVoice
-      ? '点击上方按钮开始语音输入'
-      : '⚠️ 当前浏览器不支持语音识别，请用下方按钮打字输入';
-    this.ui.showSpeakStart(hint);
+  // 点击麦克风按钮 —— 尝试语音
+  async _onStartSpeaking() {
+    console.log('[App] mic clicked');
+    this.ui.setMicButtonStyle('listening');
+    this.ui.setMicStatus('正在启动语音…', '#4A90D9');
 
-    // 不支持语音时也显示文本输入备选
-    if (!supportsVoice || mode === 'TEXT_ONLY' || mode === 'TEXT_INPUT') {
-      const switchBtn = document.getElementById('btn-switch-to-text');
-      if (switchBtn) {
-        switchBtn.textContent = '⌨️ 打字输入';
-        switchBtn.style.display = 'inline-block';
+    // 方案1：尝试 Web Speech API
+    if (this.speech.supportsSpeechAPI) {
+      try {
+        const result = await this.speech.startSpeechRecognition({
+          silenceTimeout: this.difficultyCtrl.getSpeechTimeout()
+        });
+        if (!result.silent && result.transcript) {
+          this.ui.setMicStatus('✅ 识别完成', '#52C41A');
+          this._handleUserInput(result.transcript);
+          return;
+        }
+        if (result.silent) {
+          this.ui.setMicStatus('未检测到语音', '#FAAD14');
+          this._handleSilence();
+        }
+      } catch (e) {
+        console.warn('[App] Speech API failed:', e.message);
+        this.ui.setMicStatus('Speech API 不可用，尝试录音…', '#FAAD14');
       }
     }
 
-    console.log('[App] _startUserTurn, mode:', mode, 'supportsVoice:', supportsVoice);
-  }
+    // 方案2：尝试 MediaRecorder 录音
+    if (this.speech.supportsMediaRecorder) {
+      try {
+        this.ui.setMicButtonStyle('recording');
+        this.ui.setMicStatus('🔴 正在录音，说完后再次点击停止', '#FF4D4F');
 
-  // 用户点击按钮后启动语音识别
-  async _onStartSpeaking() {
-    const turn = this.dialogue?.getCurrentTurn();
-    if (!turn) return;
+        const result = await this.speech.startRecording();
+        this.ui.setMicButtonStyle('idle');
+        this.ui.setMicStatus('录音完成，正在处理…', '#4A90D9');
 
-    console.log('[App] _onStartSpeaking called, turn:', turn.id);
+        // 录音完成，获取 base64 音频数据
+        const base64Audio = await this.speech.blobToBase64(result.blob);
 
-    // 隐藏按钮和错误，显示麦克风
-    this.ui.hideSpeakStart();
-    this.ui.hideMicError();
-    this.ui.showMicInput();
-    this.ui.setMicState('listening');
-
-    try {
-      await this._startListening(turn);
-    } catch (e) {
-      console.error('[App] _onStartSpeaking error:', e.message);
-      this.ui.showMicError('语音启动失败: ' + e.message);
-      this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
+        // 将音频交 AI 转文字
+        await this._transcribeAudio(base64Audio);
+        return;
+      } catch (e) {
+        console.warn('[App] MediaRecorder failed:', e.message);
+        if (e.message === 'NOT_SUPPORTED') {
+          this.ui.setMicStatus('浏览器不支持录音', '#aaa');
+        } else if (e.message?.includes('Permission') || e.message?.includes('NotAllowed')) {
+          this.ui.setMicStatus('麦克风权限被拒绝', '#FF4D4F');
+        } else {
+          this.ui.setMicStatus('录音失败: ' + e.message, '#FF4D4F');
+        }
+      }
     }
+
+    // 全部失败，回退到文字输入
+    this.ui.setMicButtonStyle('disabled');
+    this.ui.setMicStatus('语音不可用，请直接打字输入', '#aaa');
+    this.ui.focusTextInput();
   }
 
-  async _startListening(turn) {
-    console.log('[App] _startListening, speech supported:', this.speech.supportsRecognition);
-    // 显示实时识别结果回调
-    this.speech.onInterimResult = (text) => {
-      console.log('[App] interim:', text);
-      this.ui.addInterimBubble(text);
-    };
-
-    this.speech.onFinalResult = (text) => {
-      this.ui.removeInterimBubble();
-    };
+  // 音频转文字
+  async _transcribeAudio(base64Audio) {
+    this.ui.setMicStatus('AI 正在转文字…', '#4A90D9');
 
     try {
-      const result = await this.speech.startListening({
-        silenceTimeout: this.difficultyCtrl.getSpeechTimeout()
+      // 调用 AI 进行语音转文字
+      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-4o-transcribe',
+          file: base64Audio,
+          language: 'en'
+        })
       });
 
-      console.log('[App] listening result:', result);
-      this.ui.removeInterimBubble();
-
-      if (result.silent) {
-        // 无响应
-        this._handleSilence(turn);
-      } else {
-        this._handleUserInput(result.transcript);
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.text || '';
+        if (text.trim()) {
+          this.ui.setMicStatus('✅ 识别完成', '#52C41A');
+          this._handleUserInput(text.trim());
+          return;
+        }
       }
-    } catch (error) {
-      console.warn('[App] Speech recognition error:', error.message, error);
-
-      this.ui.setMicState('idle');
-
-      if (error.message === 'not-allowed' || error.message?.includes('not-allowed')) {
-        this.ui.showMicError('⚠️ 麦克风权限未授权，请在浏览器设置中允许麦克风访问');
-        this.ui.showSpeakStart('请授权后重试，或点下方「打字输入」');
-      } else if (error.message === 'NOT_SUPPORTED') {
-        this.ui.showMicError('当前浏览器不支持语音识别');
-        this.ui.showSpeakStart('请使用 Chrome 浏览器，或点下方「打字输入」');
-      } else if (error.message === 'network') {
-        this.ui.showMicError('语音识别网络错误，请检查网络连接');
-        this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
-      } else {
-        this.ui.showMicError('语音出错: ' + error.message);
-        this.ui.showSpeakStart('点击重试，或点下方「打字输入」');
-      }
-
-      throw error; // 重新抛出给 _onStartSpeaking 处理
+      this.ui.setMicStatus('转文字失败，请打字输入', '#FF4D4F');
+    } catch (e) {
+      console.warn('[App] Transcribe failed:', e.message);
+      this.ui.setMicStatus('网络错误，请打字输入', '#FF4D4F');
     }
+    this.ui.setMicButtonStyle('idle');
+    this.ui.focusTextInput();
   }
 
-  _handleSilence(turn) {
-    this.ui.setMicState('idle');
-    this.ui.showSkipButton(false);
+  _handleSilence() {
+    this.ui.setMicButtonStyle('idle');
+    setTimeout(() => this.ui.setMicStatus('', '#888'), 3000);
 
-    // 记录空响应
-    const correction = this.correction.analyze(
-      '',
-      turn.originalText,
-      this.difficultyCtrl.getLevel(),
-      turn.id
-    );
-
+    const turn = this.dialogue?.getCurrentTurn();
+    if (!turn) return;
+    const correction = this.correction.analyze('', turn.originalText, this.difficultyCtrl.getLevel(), turn.id);
     this.dialogue.recordUserInput(turn.id, '', correction);
-    this.recorder.logTurn({ ...turn, userInput: '', correction, score: 0 });
-
-    // 进入纠错反馈
-    this.ui.showCorrection('', turn.originalText, correction.errors, false);
-    this.stateMachine.transition('CORRECTION_FEEDBACK');
-
-    // 自动倒计时重试
-    this.countdownTimer = this.ui.startCorrectionCountdown(
-      CONFIG.training.repeatCountdown,
-      () => this._nextDialogueTurn()
-    );
+    this.recorder?.logTurn({ ...turn, userInput: '', correction, score: 0 });
+    this._nextDialogueTurn();
   }
 
   _handleUserInput(text) {
@@ -540,8 +527,9 @@ class App {
 
     // 添加用户气泡
     this.ui.addChatBubble('你', text, true, '');
-    this.ui.setMicState('recognizing');
-    this.ui.showSkipButton(false);
+    this.ui.clearTextInput();
+    this.ui.setMicButtonStyle('idle');
+    this.ui.setMicStatus('', '#888');
 
     // 进入纠错分析
     this.stateMachine.transition('CORRECTING');
@@ -554,7 +542,7 @@ class App {
 
   _skipTurn() {
     this._clearTimers();
-    this.speech.stopListening();
+    this.speech.stopAll();
 
     const turn = this.dialogue?.getCurrentTurn();
     if (turn) {
@@ -562,7 +550,8 @@ class App {
       this.recorder?.logTurn({ ...turn, userInput: '(跳过)', score: 50 });
     }
 
-    this.ui.setMicState('idle');
+    this.ui.setMicButtonStyle('idle');
+    this.ui.setMicStatus('', '#888');
     this._nextDialogueTurn();
   }
 
@@ -639,7 +628,7 @@ class App {
 
     this.pendingExtendExercise = exercise;
     this.ui.showExtendExercise(exercise);
-    this.ui.setMicState('listening');
+    this.ui.setMicButtonStyle('listening');
   }
 
   async _doExtendPractice() {
@@ -652,7 +641,7 @@ class App {
     );
 
     // 播放新句子
-    this.ui.setMicState('speaking');
+    this.ui.setMicButtonStyle('disabled');
     this.ui.addChatBubble('AI 教练', newSentence, false, '🤖');
     await this.speech.speak(newSentence);
 
@@ -673,7 +662,7 @@ class App {
         this.pendingExtendExercise = nextExercise;
         this.extendSelectedWord = null;
         this.ui.showExtendExercise(nextExercise);
-        this.ui.setMicState('listening');
+        this.ui.setMicButtonStyle('listening');
         return;
       }
     }
@@ -745,8 +734,9 @@ class App {
     this.pendingExtendExercise = null;
     this.extendTraining = new ExtendTraining();
     this.difficultyCtrl = new DifficultyController('medium');
-    this.speech.cancelSpeech();
-    this.ui.setMicState('idle');
+    this.speech.stopAll();
+    this.ui.setMicButtonStyle('idle');
+    this.ui.setMicStatus('', '#888');
     this.ui.clearChat();
   }
 }

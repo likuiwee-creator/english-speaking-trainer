@@ -277,31 +277,23 @@
 
   <!-- ========== 底部控制栏 (对话模式专用) ========== -->
   <footer id="footer-bar" style="display:none">
-    <!-- 开始说话按钮 (用户手势触发) -->
-    <div id="speak-start-area">
-      <button class="btn-primary btn-large" id="btn-start-speaking">
-        <span>🎤 点击开始说话</span>
-      </button>
-      <div id="speak-mode-hint" style="font-size:12px;color:#888;margin-top:8px;text-align:center;"></div>
+    <!-- 文本输入行 (主通道，始终可见) -->
+    <div id="input-row" style="display:flex;gap:6px;align-items:center;width:100%;">
+      <input type="text" id="text-input-field" placeholder="输入你说的英文…" autocomplete="off"
+        style="flex:1;padding:12px 14px;border:2px solid #E8E8E8;border-radius:12px;font-size:16px;outline:none;min-width:0;">
+      <button id="btn-mic" style="width:48px;height:48px;border-radius:50%;border:2px solid #E8E8E8;
+        background:#fff;font-size:22px;cursor:pointer;flex-shrink:0;transition:all 0.2s;"
+        title="语音输入">🎤</button>
+      <button id="btn-text-submit" style="padding:12px 20px;background:#4A90D9;color:#fff;border:none;
+        border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;flex-shrink:0;">发送</button>
     </div>
-    <!-- 麦克风区域 -->
-    <div id="mic-area" style="display:none">
-      <div id="mic-status-text" style="text-align:center;font-size:14px;font-weight:500;">🎤 正在聆听…</div>
-      <div id="mic-waveform">
-        <span class="wave-bar"></span><span class="wave-bar"></span><span class="wave-bar"></span>
-        <span class="wave-bar"></span><span class="wave-bar"></span>
-      </div>
-      <div id="mic-error-msg" style="display:none;font-size:12px;color:#FF4D4F;text-align:center;margin-top:4px;"></div>
+    <!-- 录音状态 -->
+    <div id="mic-status-bar" style="display:none;text-align:center;padding:4px 0;">
+      <span id="mic-status-text" style="font-size:13px;color:#888;"></span>
     </div>
-    <!-- 文本输入 -->
-    <div id="text-input-area" style="display:none">
-      <input type="text" id="text-input-field" placeholder="输入你说的英文…" autocomplete="off">
-      <button id="btn-text-submit">发送</button>
-    </div>
-    <!-- 底部操作行 -->
-    <div id="footer-actions" style="display:flex;gap:8px;justify-content:center;align-items:center;">
-      <button class="btn-text" id="btn-switch-to-text" style="display:none;font-size:12px;color:#4A90D9;">⌨️ 打字输入</button>
-      <button class="btn-skip" id="btn-skip-turn">跳过</button>
+    <!-- 操作行 -->
+    <div style="text-align:center;margin-top:2px;">
+      <button class="btn-skip" id="btn-skip-turn" style="background:none;border:none;color:#aaa;font-size:12px;cursor:pointer;padding:2px 8px;">跳过</button>
     </div>
   </footer>
 
