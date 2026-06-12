@@ -10,6 +10,7 @@ import { ExtendTraining } from './extendTraining.js';
 import { TrainingRecorder } from './trainingRecorder.js';
 import { StorageManager } from './storageManager.js';
 import { UIRenderer } from './uiRenderer.js';
+import { PronunciationAnalyzer } from './pronunciationAnalyzer.js';
 
 class App {
   constructor() {
@@ -22,10 +23,12 @@ class App {
     this.extendTraining = new ExtendTraining();
     this.storage = new StorageManager();
     this.ui = new UIRenderer();
+    this.pronAnalyzer = new PronunciationAnalyzer();
 
     // 运行时状态
     this.dialogue = null;
     this.recorder = null;
+    this.currentAudioBlob = null;    // 当前录音
     this.selectedRole = null;
     this.selectedRoleId = null;
     this.originalPassage = '';
@@ -149,9 +152,9 @@ class App {
       this._skipTurn();
     });
 
-    // 麦克风按钮（录音 / 语音识别）
+    // 麦克风按钮（录音开关：点一下开始，再点停止并分析）
     document.getElementById('btn-mic')?.addEventListener('click', () => {
-      this._onStartSpeaking();
+      this._onMicClick();
     });
 
     // 文本输入提交
@@ -412,111 +415,73 @@ class App {
     console.log('[App] turn ready, mode:', this.speech.getFallbackMode());
   }
 
-  // 点击麦克风按钮 —— 尝试语音
-  async _onStartSpeaking() {
-    console.log('[App] mic clicked');
-    this.ui.setMicButtonStyle('listening');
-    this.ui.setMicStatus('正在启动语音…', '#4A90D9');
+  // 点击麦克风按钮 —— 录音 + 发音评价 (开关式)
+  async _onMicClick() {
+    // 正在录音中 → 停止并分析
+    if (this.speech.isRecording) {
+      console.log('[App] stopping recording...');
+      this.speech.stopRecording();
+      this.ui.setMicButtonStyle('idle');
+      this.ui.setMicStatus('录音完成，正在评价发音…', '#4A90D9');
 
-    // 方案1：尝试 Web Speech API
-    if (this.speech.supportsSpeechAPI) {
       try {
-        const result = await this.speech.startSpeechRecognition({
-          silenceTimeout: this.difficultyCtrl.getSpeechTimeout()
-        });
-        if (!result.silent && result.transcript) {
-          this.ui.setMicStatus('✅ 识别完成', '#52C41A');
-          this._handleUserInput(result.transcript);
-          return;
+        // 等待录音完成
+        const result = await this._recordingPromise;
+
+        // 分析发音
+        const turn = this.dialogue?.getCurrentTurn();
+        const expectedText = turn?.originalText || '';
+        const pronReport = await this.pronAnalyzer.analyze(
+          result.blob,
+          expectedText,
+          '' // 不依赖转文字
+        );
+
+        console.log('[App] Pronunciation report:', pronReport);
+
+        // 显示评价
+        this.stateMachine.transition('CORRECTION_FEEDBACK');
+        this.ui.showPronunciationFeedback(pronReport, expectedText);
+
+        // 记录
+        if (turn) {
+          this.dialogue.recordUserInput(turn.id, '(语音)', { overallScore: pronReport.overall, errors: [] });
+          this.recorder?.logTurn({ ...turn, userInput: '(语音)', score: pronReport.overall });
         }
-        if (result.silent) {
-          this.ui.setMicStatus('未检测到语音', '#FAAD14');
-          this._handleSilence();
-        }
+
+        // 自动倒计时
+        this.countdownTimer = this.ui.startCorrectionCountdown(
+          CONFIG.training.repeatCountdown,
+          () => {
+            this.stateMachine.transition('DIALOGUE_ACTIVE');
+            this._nextDialogueTurn();
+          }
+        );
       } catch (e) {
-        console.warn('[App] Speech API failed:', e.message);
-        this.ui.setMicStatus('Speech API 不可用，尝试录音…', '#FAAD14');
+        console.warn('[App] Recording process error:', e.message);
+        this.ui.setMicStatus('处理出错，请重试', '#FF4D4F');
+        this.ui.focusTextInput();
       }
+      return;
     }
 
-    // 方案2：尝试 MediaRecorder 录音
-    if (this.speech.supportsMediaRecorder) {
-      try {
-        this.ui.setMicButtonStyle('recording');
-        this.ui.setMicStatus('🔴 正在录音，说完后再次点击停止', '#FF4D4F');
-
-        const result = await this.speech.startRecording();
-        this.ui.setMicButtonStyle('idle');
-        this.ui.setMicStatus('录音完成，正在处理…', '#4A90D9');
-
-        // 录音完成，获取 base64 音频数据
-        const base64Audio = await this.speech.blobToBase64(result.blob);
-
-        // 将音频交 AI 转文字
-        await this._transcribeAudio(base64Audio);
-        return;
-      } catch (e) {
-        console.warn('[App] MediaRecorder failed:', e.message);
-        if (e.message === 'NOT_SUPPORTED') {
-          this.ui.setMicStatus('浏览器不支持录音', '#aaa');
-        } else if (e.message?.includes('Permission') || e.message?.includes('NotAllowed')) {
-          this.ui.setMicStatus('麦克风权限被拒绝', '#FF4D4F');
-        } else {
-          this.ui.setMicStatus('录音失败: ' + e.message, '#FF4D4F');
-        }
-      }
-    }
-
-    // 全部失败，回退到文字输入
-    this.ui.setMicButtonStyle('disabled');
-    this.ui.setMicStatus('语音不可用，请直接打字输入', '#aaa');
-    this.ui.focusTextInput();
-  }
-
-  // 音频转文字
-  async _transcribeAudio(base64Audio) {
-    this.ui.setMicStatus('AI 正在转文字…', '#4A90D9');
+    // 开始录音
+    console.log('[App] starting recording...');
+    this.ui.setMicButtonStyle('recording');
+    this.ui.setMicStatus('🔴 正在录音，读完点🎤停止', '#FF4D4F');
 
     try {
-      // 调用 AI 进行语音转文字
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gpt-4o-transcribe',
-          file: base64Audio,
-          language: 'en'
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.text || '';
-        if (text.trim()) {
-          this.ui.setMicStatus('✅ 识别完成', '#52C41A');
-          this._handleUserInput(text.trim());
-          return;
-        }
-      }
-      this.ui.setMicStatus('转文字失败，请打字输入', '#FF4D4F');
+      this._recordingPromise = this.speech.startRecording();
     } catch (e) {
-      console.warn('[App] Transcribe failed:', e.message);
-      this.ui.setMicStatus('网络错误，请打字输入', '#FF4D4F');
+      console.warn('[App] Recording failed:', e.message);
+      this.ui.setMicButtonStyle('idle');
+      if (e.message?.includes('Permission') || e.message?.includes('NotAllowed')) {
+        this.ui.setMicStatus('麦克风权限被拒绝', '#FF4D4F');
+      } else {
+        this.ui.setMicStatus('录音失败，请打字输入', '#FF4D4F');
+      }
+      this.ui.focusTextInput();
     }
-    this.ui.setMicButtonStyle('idle');
-    this.ui.focusTextInput();
-  }
-
-  _handleSilence() {
-    this.ui.setMicButtonStyle('idle');
-    setTimeout(() => this.ui.setMicStatus('', '#888'), 3000);
-
-    const turn = this.dialogue?.getCurrentTurn();
-    if (!turn) return;
-    const correction = this.correction.analyze('', turn.originalText, this.difficultyCtrl.getLevel(), turn.id);
-    this.dialogue.recordUserInput(turn.id, '', correction);
-    this.recorder?.logTurn({ ...turn, userInput: '', correction, score: 0 });
-    this._nextDialogueTurn();
   }
 
   _handleUserInput(text) {

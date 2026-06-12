@@ -191,19 +191,39 @@
 
     <!-- CORRECTION_FEEDBACK: 纠错反馈 -->
     <section id="state-correction-feedback" class="state-panel">
-      <div class="correction-header">🔍 练习反馈</div>
+      <div class="correction-header">🔍 发音评价</div>
       <div class="correction-body">
-        <div class="correction-section">
-          <div class="correction-label">你说的：</div>
-          <div class="correction-box correction-user" id="correction-user-text"></div>
+        <!-- 总分 -->
+        <div id="pron-overall" class="pron-overall">
+          <span id="pron-overall-score">--</span>
+          <span id="pron-overall-stars"></span>
         </div>
-        <div class="correction-section correction-result-section" id="correction-result-area">
-          <!-- 动态填充纠错结果 -->
+        <!-- 维度评分 -->
+        <div id="pron-dimensions">
+          <div class="pron-dim" id="pron-dim-accuracy">
+            <span class="pron-dim-name">🎯 音准</span>
+            <div class="pron-dim-bar"><div class="pron-dim-fill" id="pron-fill-accuracy"></div></div>
+            <span class="pron-dim-score" id="pron-score-accuracy">--</span>
+          </div>
+          <div class="pron-dim" id="pron-dim-fluency">
+            <span class="pron-dim-name">💨 流畅度</span>
+            <div class="pron-dim-bar"><div class="pron-dim-fill" id="pron-fill-fluency"></div></div>
+            <span class="pron-dim-score" id="pron-score-fluency">--</span>
+          </div>
+          <div class="pron-dim" id="pron-dim-completeness">
+            <span class="pron-dim-name">📋 完整度</span>
+            <div class="pron-dim-bar"><div class="pron-dim-fill" id="pron-fill-completeness"></div></div>
+            <span class="pron-dim-score" id="pron-score-completeness">--</span>
+          </div>
+          <div class="pron-dim" id="pron-dim-intonation">
+            <span class="pron-dim-name">🎵 语调</span>
+            <div class="pron-dim-bar"><div class="pron-dim-fill" id="pron-fill-intonation"></div></div>
+            <span class="pron-dim-score" id="pron-score-intonation">--</span>
+          </div>
         </div>
-        <div class="correction-section">
-          <div class="correction-label">📝 正确句子：</div>
-          <div class="correction-box correction-correct" id="correction-correct-text"></div>
-        </div>
+        <!-- 详细信息 -->
+        <div id="pron-detail" class="pron-detail"></div>
+        <!-- 操作 -->
         <div class="correction-actions">
           <button class="btn-secondary" id="btn-listen-demo">👂 听示范发音</button>
           <button class="btn-primary" id="btn-retry-sentence">🔄 再来一次</button>

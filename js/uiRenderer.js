@@ -229,6 +229,54 @@ export class UIRenderer {
     if (o) o.classList.add('selected');
   }
 
+  // --- Pronunciation Feedback ---
+  showPronunciationFeedback(report, expectedText) {
+    // 总分
+    const scoreEl = document.getElementById('pron-overall-score');
+    const starsEl = document.getElementById('pron-overall-stars');
+    if (scoreEl) scoreEl.textContent = report.overall;
+    if (starsEl) starsEl.textContent = report.stars;
+
+    // 四个维度
+    this._setPronDim('accuracy', report.accuracy);
+    this._setPronDim('fluency', report.fluency);
+    this._setPronDim('completeness', report.completeness);
+    this._setPronDim('intonation', report.intonation);
+
+    // 详细反馈
+    const detailEl = document.getElementById('pron-detail');
+    if (detailEl) {
+      const parts = [];
+      if (report.accuracy.detail) parts.push(`<div class="pron-detail-item">🎯 ${report.accuracy.detail}</div>`);
+      if (report.fluency.detail) parts.push(`<div class="pron-detail-item">💨 ${report.fluency.detail}</div>`);
+      if (report.completeness.detail) parts.push(`<div class="pron-detail-item">📋 ${report.completeness.detail}</div>`);
+      if (report.intonation.detail) parts.push(`<div class="pron-detail-item">🎵 ${report.intonation.detail}</div>`);
+      if (expectedText) parts.push(`<div class="pron-detail-item" style="margin-top:8px;color:#4A90D9;">📝 正确句子：${expectedText}</div>`);
+      if (report.suggestions && report.suggestions.length > 0) {
+        parts.push(`<div style="margin-top:8px;font-weight:600;color:#D46B08;">💡 改进建议：</div>`);
+        report.suggestions.forEach(s => {
+          parts.push(`<div class="pron-detail-suggestion">• ${s}</div>`);
+        });
+      }
+      detailEl.innerHTML = parts.join('');
+    }
+
+    // 倒计时重置
+    const cdEl = document.getElementById('correction-countdown');
+    if (cdEl) cdEl.textContent = '';
+  }
+
+  _setPronDim(name, dim) {
+    const fillEl = document.getElementById(`pron-fill-${name}`);
+    const scoreEl = document.getElementById(`pron-score-${name}`);
+    const s = dim.score || 0;
+    if (fillEl) {
+      fillEl.style.width = s + '%';
+      fillEl.className = 'pron-dim-fill ' + (s >= 80 ? 'high' : s >= 50 ? 'medium' : 'low');
+    }
+    if (scoreEl) scoreEl.textContent = s;
+  }
+
   // --- Report ---
   showReport(report) {
     const body = document.getElementById('report-body'); if (!body) return;
