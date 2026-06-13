@@ -32,6 +32,7 @@ class App {
     this._recordingPromise = null;
     this._recordingActive = false;
     this._lastAudioUrl = null;
+    this._currentExpectedText = '';
     this.selectedRole = null;
     this.selectedRoleId = null;
     this.originalPassage = '';
@@ -135,7 +136,7 @@ class App {
 
     // 纠错 - 听示范发音
     document.getElementById('btn-listen-demo')?.addEventListener('click', () => {
-      const text = document.getElementById('correction-correct-text')?.textContent;
+      const text = this._currentExpectedText;
       if (text) {
         this.ui.setMicButtonStyle('disabled');
         this.speech.speak(text).then(() => {
@@ -482,6 +483,7 @@ class App {
       // 分析发音
       const turn = this.dialogue?.getCurrentTurn();
       const expectedText = turn?.originalText || '';
+      this._currentExpectedText = expectedText;
       const pronReport = await this.pronAnalyzer.analyze(
         result.blob,
         expectedText,
@@ -551,7 +553,7 @@ class App {
     this._nextDialogueTurn();
   }
 
-  // ========== 纠错处理 ==========
+  // ========== 纠错处理（文字输入） ==========
   _doCorrection(turn, userText) {
     const correction = this.correction.analyze(
       userText,
@@ -563,46 +565,52 @@ class App {
     // 记录
     this.dialogue.recordUserInput(turn.id, userText, correction);
     this.recorder.logTurn({ ...turn, userInput: userText, correction, score: correction.overallScore });
+    this._currentExpectedText = turn.originalText;
 
     // 检查是否已纠错过（每个对话单元仅纠错1次）
     if (correction.isPerfect) {
-      // 完美，直接进入下一轮
       this.stateMachine.transition('DIALOGUE_ACTIVE');
       setTimeout(() => this._nextDialogueTurn(), 500);
       return;
     }
 
-    // 检查本轮是否已展示过纠错
     if (turn.isCorrected) {
-      // 已纠错过，仅记录，直接下一轮
       this.stateMachine.transition('DIALOGUE_ACTIVE');
       setTimeout(() => this._nextDialogueTurn(), 300);
       return;
     }
 
-    // 首次错误，展示纠错
+    // 首次错误，用发音评价格式展示
     this.dialogue.markCorrected(turn.id);
-    this.ui.showCorrection(userText, turn.originalText, correction.errors, false);
+
+    // 将 CorrectionEngine 结果转为发音评价报告格式
+    const pronReport = {
+      overall: correction.overallScore,
+      stars: correction.overallScore >= 90 ? '⭐⭐⭐⭐⭐' : correction.overallScore >= 75 ? '⭐⭐⭐⭐' : correction.overallScore >= 60 ? '⭐⭐⭐' : correction.overallScore >= 40 ? '⭐⭐' : '⭐',
+      accuracy: { score: correction.pronunciationScore || correction.overallScore, label: '音准', detail: userText ? `你说的是 "${userText.substring(0,30)}"` : '未检测到输入' },
+      fluency: { score: correction.fluencyScore || 70, label: '流畅度', detail: '' },
+      completeness: { score: correction.vocabularyScore || correction.overallScore, label: '完整度', detail: '' },
+      intonation: { score: 70, label: '语调', detail: '文字模式下语调仅供参考' },
+      suggestions: correction.errors.map(e => e.feedback).slice(0, 5)
+    };
+
     this.stateMachine.transition('CORRECTION_FEEDBACK');
+    this.ui.showPronunciationFeedback(pronReport, turn.originalText);
 
-    // 评估难度调整
+    // 评估难度
     const allTurns = this.dialogue.getAllTurns().map(t => ({
-      userInput: t.userInput,
-      score: t.score || 0,
-      correction: t.correction
+      userInput: t.userInput, score: t.score || 0, correction: t.correction
     }));
-    const adj = this.difficultyCtrl.evaluate(allTurns);
-
-    if (adj === 'downgrade') {
-      this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
-    } else if (adj === 'upgrade') {
-      this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
-    }
+    this.difficultyCtrl.evaluate(allTurns);
+    this.ui.updateDifficultyBadge(this.difficultyCtrl.getLabel());
 
     // 自动倒计时重试
     this.countdownTimer = this.ui.startCorrectionCountdown(
       CONFIG.training.repeatCountdown,
-      () => this._nextDialogueTurn()
+      () => {
+        this.stateMachine.transition('DIALOGUE_ACTIVE');
+        this._nextDialogueTurn();
+      }
     );
   }
 
