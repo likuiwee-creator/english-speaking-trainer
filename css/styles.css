@@ -274,6 +274,53 @@ body {
   animation: breathe 2s ease-in-out infinite;
 }
 
+/* 录音脉冲动画 */
+@keyframes recPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,77,79,0.5); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 12px rgba(255,77,79,0); }
+}
+#btn-mic.recording-btn {
+  animation: recPulse 1s ease-in-out infinite;
+  background: #FFF1F0 !important;
+  border-color: #FF4D4F !important;
+}
+
+/* 新手引导 */
+.guide-overlay {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  background: rgba(0,0,0,0.5); z-index: 999;
+  display: flex; align-items: center; justify-content: center;
+}
+.guide-card {
+  background: #fff; border-radius: 20px; padding: 28px 24px;
+  max-width: 320px; width: 90%; text-align: center; animation: bubbleIn 0.4s ease;
+}
+.guide-card h3 { font-size: 20px; margin-bottom: 16px; }
+.guide-step { display: flex; align-items: center; gap: 10px; text-align: left;
+  padding: 10px 12px; margin-bottom: 8px; background: #F5F7FA; border-radius: 10px; }
+.guide-step-num { width: 28px; height: 28px; border-radius: 50%;
+  background: #4A90D9; color: #fff; font-weight: 700; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.guide-step-text { font-size: 14px; color: #333; }
+.guide-btn { margin-top: 16px; width: 100%; padding: 14px; background: #4A90D9;
+  color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+
+/* 报告折叠 */
+.report-collapse-header {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; padding: 4px 0;
+}
+.report-collapse-arrow { font-size: 12px; transition: transform 0.3s; }
+.report-collapse-arrow.open { transform: rotate(90deg); }
+.report-collapse-body { display: none; }
+.report-collapse-body.open { display: block; }
+
+/* OCR降级提示 */
+.ocr-fallback {
+  text-align: center; padding: 12px; margin-top: 16px;
+  font-size: 14px; color: #FAAD14;
+}
+
 /* ============================================
    OCR 拍照页
    ============================================ */
@@ -1053,6 +1100,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.extend-instruction {
+  text-align: center; padding: 10px 14px;
+  background: #E8F4FD; border-radius: 10px;
+  font-size: 14px; color: #4A90D9; font-weight: 600;
+  animation: breathe 2s ease-in-out infinite;
 }
 
 .extend-prompt {

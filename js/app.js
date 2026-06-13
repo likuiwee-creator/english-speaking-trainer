@@ -66,6 +66,21 @@ class App {
 
     // 初始状态
     this.ui.showState('IDLE');
+
+    // 新手引导（首次访问）
+    this._showGuide();
+  }
+
+  _showGuide() {
+    const shown = localStorage.getItem('et_guide_shown');
+    if (shown) return;
+    const overlay = document.getElementById('guide-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    document.getElementById('btn-guide-close')?.addEventListener('click', () => {
+      overlay.style.display = 'none';
+      localStorage.setItem('et_guide_shown', '1');
+    });
   }
 
   // ========== 事件绑定 ==========
@@ -315,17 +330,29 @@ class App {
     // 进入处理状态
     this.stateMachine.transition('OCR_PROCESSING');
 
+    // 超时降级：15秒后自动跳到手动输入
+    const ocrTimeout = setTimeout(() => {
+      this.ui.showOCRProgress(100, '识别超时，请手动输入');
+      this.ui.setReviewText('');
+      this.stateMachine.transition('TEXT_REVIEW');
+    }, 15000);
+
     try {
       const result = await this.ocr.processImage(file, (progress) => {
         this.ui.showOCRProgress(progress.pct, progress.hint);
       });
+      clearTimeout(ocrTimeout);
 
-      this.originalPassage = result.cleanedText;
-      this.ui.setReviewText(result.cleanedText);
+      if (result.cleanedText && result.cleanedText.trim().length > 0) {
+        this.originalPassage = result.cleanedText;
+        this.ui.setReviewText(result.cleanedText);
+      } else {
+        this.ui.setReviewText('');
+      }
       this.stateMachine.transition('TEXT_REVIEW');
     } catch (error) {
+      clearTimeout(ocrTimeout);
       console.error('OCR error:', error);
-      alert('OCR 识别失败: ' + error.message + '\n请手动输入课文内容');
       this.ui.setReviewText('');
       this.stateMachine.transition('TEXT_REVIEW');
     }
@@ -588,13 +615,33 @@ class App {
     this.dialogue.markCorrected(turn.id);
 
     // 将 CorrectionEngine 结果转为发音评价报告格式
+    const totalWords = turn.originalText.split(/\s+/).length;
+    const userWords = (userText || '').split(/\s+/).length;
+    const wordMatch = userWords > 0 ? Math.min(1, totalWords / Math.max(userWords, 1)) : 0;
+
     const pronReport = {
       overall: correction.overallScore,
       stars: correction.overallScore >= 90 ? '⭐⭐⭐⭐⭐' : correction.overallScore >= 75 ? '⭐⭐⭐⭐' : correction.overallScore >= 60 ? '⭐⭐⭐' : correction.overallScore >= 40 ? '⭐⭐' : '⭐',
-      accuracy: { score: correction.pronunciationScore || correction.overallScore, label: '音准', detail: userText ? `你说的是 "${userText.substring(0,30)}"` : '未检测到输入' },
-      fluency: { score: correction.fluencyScore || 70, label: '流畅度', detail: '' },
-      completeness: { score: correction.vocabularyScore || correction.overallScore, label: '完整度', detail: '' },
-      intonation: { score: 70, label: '语调', detail: '文字模式下语调仅供参考' },
+      accuracy: {
+        score: correction.pronunciationScore || Math.round(correction.overallScore * 0.9),
+        label: '音准',
+        detail: userText ? `"${userText.substring(0, 40)}${userText.length>40?'…':''}"` : '未检测到输入'
+      },
+      fluency: {
+        score: correction.fluencyScore || Math.round(correction.overallScore * 0.8),
+        label: '流畅度',
+        detail: userWords >= totalWords ? '句子完整 ✅' : `少说了 ${totalWords - userWords} 个词，试着完整朗读`
+      },
+      completeness: {
+        score: Math.round(wordMatch * 100),
+        label: '完整度',
+        detail: userWords >= totalWords ? '句子完整，没有遗漏 ✅' : `说了 ${userWords}/${totalWords} 个词`
+      },
+      intonation: {
+        score: correction.grammarScore || 65,
+        label: '语调',
+        detail: correction.errors.length === 0 ? '语法正确' : `注意 ${correction.errors.length} 处小问题`
+      },
       suggestions: correction.errors.map(e => e.feedback).slice(0, 5)
     };
 

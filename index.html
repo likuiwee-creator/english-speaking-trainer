@@ -239,6 +239,9 @@
         <h2>🚀 拓展练习</h2>
       </div>
       <div class="extend-body">
+        <div class="extend-instruction">
+          <span>👇 点击下方替换词，然后对着麦克风朗读新句子</span>
+        </div>
         <div class="extend-prompt" id="extend-prompt-text"></div>
         <div class="extend-original">
           <span class="extend-label">原文：</span>
@@ -316,6 +319,30 @@
       <button class="btn-skip" id="btn-skip-turn" style="background:none;border:none;color:#aaa;font-size:12px;cursor:pointer;padding:2px 8px;">跳过</button>
     </div>
   </footer>
+
+  <!-- 新手引导浮层（首次访问） -->
+  <div id="guide-overlay" class="guide-overlay" style="display:none;">
+    <div class="guide-card">
+      <h3>👋 欢迎使用口语训练</h3>
+      <div class="guide-step">
+        <span class="guide-step-num">1</span>
+        <span class="guide-step-text">输入或拍摄英语课文内容</span>
+      </div>
+      <div class="guide-step">
+        <span class="guide-step-num">2</span>
+        <span class="guide-step-text">选择角色和难度</span>
+      </div>
+      <div class="guide-step">
+        <span class="guide-step-num">3</span>
+        <span class="guide-step-text">对着麦克风朗读，或直接打字</span>
+      </div>
+      <div class="guide-step">
+        <span class="guide-step-num">4</span>
+        <span class="guide-step-text">AI 给出发音评分和改进建议</span>
+      </div>
+      <button class="guide-btn" id="btn-guide-close">开始训练 🚀</button>
+    </div>
+  </div>
 
   <script type="module" src="js/app.js"></script>
 </body>

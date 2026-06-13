@@ -192,14 +192,20 @@ export class UIRenderer {
 
   setMicButtonStyle(style) {
     const b = this.elements['btn-mic']; if (!b) return;
+    // 移除旧 class
+    b.classList.remove('recording-btn');
+
     const styles = {
       idle: { background:'#fff', borderColor:'#E8E8E8', color:'#666' },
-      listening: { background:'#E8F5E9', borderColor:'#52C41A', color:'#52C41A', animation:'pulse 1.5s infinite' },
+      listening: { background:'#E8F5E9', borderColor:'#52C41A', color:'#52C41A' },
       recording: { background:'#FFF1F0', borderColor:'#FF4D4F', color:'#FF4D4F' },
       disabled: { background:'#f5f5f5', borderColor:'#ddd', color:'#ccc' }
     };
     const s = styles[style] || styles.idle;
     Object.assign(b.style, s);
+
+    // 录音态加脉冲动画 class
+    if (style === 'recording') b.classList.add('recording-btn');
   }
 
   // --- Correction Feedback ---
@@ -336,12 +342,24 @@ export class UIRenderer {
         <div class="report-dimension"><span>📝 语法</span><span>${stars(report.grammarScore)} ${report.grammarScore}</span></div>
         <div class="report-dimension"><span>📖 词汇</span><span>${stars(report.vocabularyScore)} ${report.vocabularyScore}</span></div>
         <div class="report-dimension"><span>💨 流畅度</span><span>${stars(report.fluencyScore)} ${report.fluencyScore}</span></div></div>
-      <div class="report-card"><div class="report-card-title">📋 逐句记录</div>
+      <div class="report-card">
+        <div class="report-collapse-header" onclick="
+          const btn=this.querySelector('.report-collapse-arrow');
+          const body=this.nextElementSibling;
+          btn.classList.toggle('open');
+          body.classList.toggle('open');
+        ">
+          <div class="report-card-title">📋 逐句记录 (${report.turns.length}句)</div>
+          <span class="report-collapse-arrow" style="font-size:14px;">▶</span>
+        </div>
+        <div class="report-collapse-body">
         ${report.turns.map((t,i)=>{
           const cls=t.score>=80?'good':(t.score>=60?'ok':'bad');
           const icon=t.score>=80?'✅':(t.score>=60?'⚠️':'❌');
           return `<div class="report-turn-item"><div class="report-turn-header"><span class="report-turn-num">句${i+1}</span><span class="report-turn-score ${cls}">${icon} ${t.score||0}分</span></div><div class="report-turn-text">原文: ${t.originalText}</div><div class="report-turn-text">你说: ${t.userInput}</div></div>`;
-        }).join('')}</div>
+        }).join('')}
+        </div>
+      </div>
       ${report.weakPoints.length>0?`<div class="report-card"><div class="report-card-title">🎯 薄弱环节</div>${report.weakPoints.map(w=>`<div class="report-weak-item"><div class="report-weak-category">${w.description}</div><div class="report-weak-count">出现 ${w.count} 次</div></div>`).join('')}</div>`:''}
       ${report.progressTrend.improved?`<div class="report-card" style="background:#F6FFED;border:1px solid #52C41A;"><div class="report-card-title">📈 进步趋势</div><div style="font-size:14px;">前半段:${report.progressTrend.firstHalfAccuracy}% → 后半段:${report.progressTrend.secondHalfAccuracy}%</div><div style="color:#52C41A;font-weight:600;">👍 有明显进步！</div></div>`:''}
       <div class="report-card"><div class="report-card-title">💪 建议练习</div>${report.recommendedExercises.map(r=>`<div class="report-rec-item">${r}</div>`).join('')}</div>`;
