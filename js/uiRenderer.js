@@ -305,6 +305,12 @@ export class UIRenderer {
           parts.push(`<div class="pron-detail-suggestion">• ${s}</div>`);
         });
       }
+      // 鼓励语
+      const enc = report.overall >= 90 ? '🌟 太棒了！发音非常标准！' :
+                  report.overall >= 75 ? '👍 很不错，继续加油！' :
+                  report.overall >= 60 ? '💪 还可以，多练几次会更好！' :
+                  '🌱 没关系，每一次练习都在进步！';
+      parts.push(`<div style="text-align:center;margin-top:12px;padding:8px;font-size:15px;font-weight:600;color:#4A90D9;">${enc}</div>`);
       detailEl.innerHTML = parts.join('');
     }
 

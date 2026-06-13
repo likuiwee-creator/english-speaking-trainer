@@ -472,11 +472,19 @@ class App {
     if (this.speech.isRecording) return;
     console.log('[App] start recording...');
     this.ui.setMicButtonStyle('recording');
-    this.ui.setMicStatus('🔴 正在录音，松手停止', '#FF4D4F');
+    this.ui.setMicStatus('🔴 正在录音 0"', '#FF4D4F');
+
+    // 录音计时器
+    this._recStartTime = Date.now();
+    this._recTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - this._recStartTime) / 1000);
+      this.ui.setMicStatus(`🔴 正在录音 ${sec}" 松手停止`, '#FF4D4F');
+    }, 1000);
 
     try {
       this._recordingPromise = this.speech.startRecording();
     } catch (e) {
+      clearInterval(this._recTimer);
       console.warn('[App] Recording start failed:', e.message);
       this.ui.setMicButtonStyle('idle');
       this.ui.setMicStatus('录音失败: ' + (e.message?.includes('Permission') ? '麦克风权限被拒绝' : e.message), '#FF4D4F');
@@ -488,6 +496,7 @@ class App {
     if (!this.speech || !this.speech.isRecording) return;
     if (!this._recordingPromise) return;
     console.log('[App] stop recording...');
+    clearInterval(this._recTimer);
     this.speech.stopRecording();
     this._recordingActive = false;
     this.ui.setMicButtonStyle('idle');
@@ -552,7 +561,8 @@ class App {
     if (!turn) return;
 
     // 添加用户气泡
-    this.ui.addChatBubble('你', text, true, '');
+    const roleName = this.selectedRole?.name || '你';
+    this.ui.addChatBubble(roleName, text, true, this.selectedRole?.avatar || '');
     this.ui.clearTextInput();
     this.ui.setMicButtonStyle('idle');
     this.ui.setMicStatus('', '#888');
@@ -571,6 +581,7 @@ class App {
     this.speech.stopAll();
     this._recordingActive = false;
     this._recordingPromise = null;
+    clearInterval(this._recTimer);
 
     const turn = this.dialogue?.getCurrentTurn();
     if (turn) {
