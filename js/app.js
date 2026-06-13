@@ -148,6 +148,7 @@ class App {
     // 纠错 - 再来一次
     document.getElementById('btn-retry-sentence')?.addEventListener('click', () => {
       this._clearTimers();
+      this.stateMachine.transition('DIALOGUE_ACTIVE');
       this._nextDialogueTurn();
     });
 
@@ -277,7 +278,6 @@ class App {
         break;
       case 'DIALOGUE_ACTIVE':
         this.ui.showState('DIALOGUE_ACTIVE');
-        this._nextDialogueTurn();
         break;
       case 'CORRECTING':
         this.ui.showState('CORRECTING');
@@ -363,6 +363,7 @@ class App {
     // 倒计时 3-2-1 开始
     this.ui.startReadyCountdown(CONFIG.training.readyCountdown, () => {
       this.stateMachine.transition('DIALOGUE_ACTIVE');
+      this._nextDialogueTurn();
     });
   }
 
@@ -541,6 +542,8 @@ class App {
   _skipTurn() {
     this._clearTimers();
     this.speech.stopAll();
+    this._recordingActive = false;
+    this._recordingPromise = null;
 
     const turn = this.dialogue?.getCurrentTurn();
     if (turn) {
@@ -550,6 +553,7 @@ class App {
 
     this.ui.setMicButtonStyle('idle');
     this.ui.setMicStatus('', '#888');
+    this.stateMachine.transition('DIALOGUE_ACTIVE');
     this._nextDialogueTurn();
   }
 
